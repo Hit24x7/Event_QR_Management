@@ -1,0 +1,59 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Event Scanner</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
+    <style>
+        body { font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 20px; background: #f4f4f9; }
+        #reader { width: 100%; max-width: 500px; margin: 0 auto; border-radius: 8px; overflow: hidden; }
+        #result { margin-top: 20px; padding: 15px; border-radius: 8px; font-weight: bold; font-size: 1.2em; display: none; }
+        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
+        .warning { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
+        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
+        button { margin-top: 20px; padding: 10px 20px; font-size: 1em; cursor: pointer; }
+    </style>
+</head>
+<body>
+    <h2>Ticket Scanner</h2>
+    <div id="reader"></div>
+    <div id="result"></div>
+    <button onclick="startScanner()">Start Scanner</button>
+
+    <script>
+        let html5QrcodeScanner;
+        let isScanning = true;
+
+        function onScanSuccess(decodedText) {
+            if (!isScanning) return;
+            isScanning = false;
+            html5QrcodeScanner.pause();
+
+            const resultDiv = document.getElementById('result');
+            resultDiv.style.display = 'block';
+            resultDiv.innerHTML = "Checking...";
+            resultDiv.className = "";
+
+            fetch(`/api/scan/${encodeURIComponent(decodedText)}`)
+                .then(r => r.json())
+                .then(data => {
+                    resultDiv.className = data.status;
+                    let text = `<div>${data.message}</div>`;
+                    if(data.name) text += `<div style='font-size:0.8em; margin-top:5px;'>Name: ${data.name}</div>`;
+                    resultDiv.innerHTML = text;
+                    setTimeout(() => { resultDiv.style.display = 'none'; isScanning = true; html5QrcodeScanner.resume(); }, 3000);
+                })
+                .catch(err => {
+                    resultDiv.className = "error";
+                    resultDiv.innerHTML = "Network Error!";
+                    setTimeout(() => { isScanning = true; html5QrcodeScanner.resume(); }, 3000);
+                });
+        }
+
+        function startScanner() {
+            html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: {width: 250, height: 250} }, false);
+            html5QrcodeScanner.render(onScanSuccess);
+        }
+    </script>
+</body>
+</html>
