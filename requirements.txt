@@ -2,3 +2,7 @@ fastapi
 uvicorn
 pymongo
 pydantic
+reportlab
+qrcode
+pillow
+python-multipart

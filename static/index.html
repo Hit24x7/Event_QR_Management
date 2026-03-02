@@ -1,26 +1,48 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Event Scanner</title>
-    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Scanner</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <meta name="mobile-web-app-capable" content="yes">
     <script src="https://unpkg.com/html5-qrcode" type="text/javascript"></script>
     <style>
         body { font-family: Arial, sans-serif; text-align: center; margin: 0; padding: 20px; background: #f4f4f9; }
+        #pin-screen { position: fixed; top:0; left:0; width:100%; height:100%; background:#1F4F82; color:white; display:flex; flex-direction:column; justify-content:center; align-items:center; z-index:999; }
+        #pin-input { font-size: 2em; padding: 10px; width: 150px; text-align: center; border-radius: 8px; border:none; margin-bottom: 20px;}
+        #pin-btn { font-size: 1.2em; padding: 10px 20px; border-radius: 8px; border:none; background: #FFD700; color: #1F4F82; font-weight: bold; cursor:pointer;}
+        #app-content { display: none; }
         #reader { width: 100%; max-width: 500px; margin: 0 auto; border-radius: 8px; overflow: hidden; }
         #result { margin-top: 20px; padding: 15px; border-radius: 8px; font-weight: bold; font-size: 1.2em; display: none; }
-        .success { background: #d4edda; color: #155724; border: 1px solid #c3e6cb; }
-        .warning { background: #fff3cd; color: #856404; border: 1px solid #ffeeba; }
-        .error { background: #f8d7da; color: #721c24; border: 1px solid #f5c6cb; }
-        button { margin-top: 20px; padding: 10px 20px; font-size: 1em; cursor: pointer; }
+        .success { background: #d4edda; color: #155724; } .warning { background: #fff3cd; color: #856404; } .error { background: #f8d7da; color: #721c24; }
+        .nav-btn { background: #ccc; padding: 10px; text-decoration: none; color: black; border-radius: 5px; display: inline-block; margin-top: 20px;}
     </style>
 </head>
 <body>
-    <h2>Ticket Scanner</h2>
-    <div id="reader"></div>
-    <div id="result"></div>
-    <button onclick="startScanner()">Start Scanner</button>
+    <div id="pin-screen">
+        <h2>Enter Staff PIN</h2>
+        <input type="password" id="pin-input" inputmode="numeric" maxlength="4">
+        <button id="pin-btn" onclick="checkPin()">Unlock Scanner</button>
+    </div>
+
+    <div id="app-content">
+        <h2>Door Scanner</h2>
+        <div id="reader"></div>
+        <div id="result"></div>
+        <button onclick="startScanner()" style="padding:10px 20px; font-size:1em; margin-top:15px;">Start Camera</button>
+        <br>
+        <a href="admin.html" class="nav-btn">Go to Admin Dashboard</a>
+    </div>
 
     <script>
+        const PIN = "1691"; // CHANGE THIS PIN HERE
+        function checkPin() {
+            if(document.getElementById('pin-input').value === PIN) {
+                document.getElementById('pin-screen').style.display = 'none';
+                document.getElementById('app-content').style.display = 'block';
+            } else { alert("Incorrect PIN!"); }
+        }
+
         let html5QrcodeScanner;
         let isScanning = true;
 
@@ -28,28 +50,20 @@
             if (!isScanning) return;
             isScanning = false;
             html5QrcodeScanner.pause();
-
             const resultDiv = document.getElementById('result');
-            resultDiv.style.display = 'block';
-            resultDiv.innerHTML = "Checking...";
-            resultDiv.className = "";
+            resultDiv.style.display = 'block'; resultDiv.innerHTML = "Checking..."; resultDiv.className = "";
 
             fetch(`/api/scan/${encodeURIComponent(decodedText)}`)
                 .then(r => r.json())
                 .then(data => {
                     resultDiv.className = data.status;
-                    let text = `<div>${data.message}</div>`;
-                    if(data.name) text += `<div style='font-size:0.8em; margin-top:5px;'>Name: ${data.name}</div>`;
-                    resultDiv.innerHTML = text;
+                    resultDiv.innerHTML = `<div>${data.message}</div>` + (data.name ? `<div style='font-size:0.8em;'>Name: ${data.name}</div>` : "");
                     setTimeout(() => { resultDiv.style.display = 'none'; isScanning = true; html5QrcodeScanner.resume(); }, 3000);
-                })
-                .catch(err => {
-                    resultDiv.className = "error";
-                    resultDiv.innerHTML = "Network Error!";
+                }).catch(err => {
+                    resultDiv.className = "error"; resultDiv.innerHTML = "Network Error!";
                     setTimeout(() => { isScanning = true; html5QrcodeScanner.resume(); }, 3000);
                 });
         }
-
         function startScanner() {
             html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: {width: 250, height: 250} }, false);
             html5QrcodeScanner.render(onScanSuccess);

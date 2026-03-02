@@ -1,0 +1,104 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Admin Dashboard</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <meta name="apple-mobile-web-app-capable" content="yes">
+    <style>
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f4f4f9; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
+        h2 { margin-top: 0; color: #1F4F82; }
+        input { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
+        button { width: 100%; padding: 12px; background: #1F4F82; color: white; border: none; border-radius: 4px; font-size: 1.1em; font-weight: bold; }
+        .stats { display: flex; justify-content: space-between; }
+        .stat-box { text-align: center; background: #e9ecef; padding: 15px; border-radius: 8px; width: 45%; }
+        .stat-num { font-size: 2em; font-weight: bold; color: #1F4F82; }
+        #pin-screen { position: fixed; top:0; left:0; width:100%; height:100%; background:#1F4F82; color:white; display:flex; flex-direction:column; justify-content:center; align-items:center; z-index:999; }
+        #pin-input { font-size: 2em; padding: 10px; width: 150px; text-align: center; border-radius: 8px; border:none; margin-bottom: 20px;}
+        #app-content { display: none; }
+        .nav-btn { background: #ccc; padding: 10px; text-decoration: none; color: black; border-radius: 5px; display: block; text-align: center; margin-top: 20px;}
+    </style>
+</head>
+<body>
+
+    <div id="pin-screen">
+        <h2>Enter Admin PIN</h2>
+        <input type="password" id="pin-input" inputmode="numeric" maxlength="4">
+        <button onclick="checkPin()" style="background:#FFD700; color:#1F4F82; width:auto; padding:10px 30px;">Unlock</button>
+    </div>
+
+    <div id="app-content">
+        <div class="card">
+            <h2>Live Event Stats</h2>
+            <div class="stats">
+                <div class="stat-box">
+                    <div class="stat-num" id="stat-total">-</div>
+                    <div>Issued</div>
+                </div>
+                <div class="stat-box">
+                    <div class="stat-num" id="stat-scanned">-</div>
+                    <div>Scanned</div>
+                </div>
+            </div>
+            <button onclick="loadStats()" style="margin-top:15px; background:#6c757d; padding:8px;">Refresh Stats</button>
+        </div>
+
+        <div class="card">
+            <h2>Generate Ticket</h2>
+            <form id="genForm">
+                <input type="text" name="event" placeholder="Event Name (e.g. Tech Summit)" required>
+                <input type="text" name="name" placeholder="Attendee Name" required>
+                <input type="date" name="date" required>
+                <input type="text" name="venue" placeholder="Venue" required>
+                <input type="number" name="tickets" placeholder="Number of Tickets" value="1" required>
+                <button type="submit" id="submitBtn">Generate & Download PDF</button>
+            </form>
+        </div>
+
+        <a href="index.html" class="nav-btn">Back to Scanner</a>
+    </div>
+
+    <script>
+        const PIN = "1691"; // CHANGE THIS PIN HERE
+        function checkPin() {
+            if(document.getElementById('pin-input').value === PIN) {
+                document.getElementById('pin-screen').style.display = 'none';
+                document.getElementById('app-content').style.display = 'block';
+                loadStats();
+            } else { alert("Incorrect PIN!"); }
+        }
+
+        function loadStats() {
+            fetch('/api/stats').then(r => r.json()).then(data => {
+                document.getElementById('stat-total').innerText = data.total;
+                document.getElementById('stat-scanned').innerText = data.scanned;
+            });
+        }
+
+        document.getElementById('genForm').onsubmit = function(e) {
+            e.preventDefault();
+            const btn = document.getElementById('submitBtn');
+            btn.innerText = "Generating..."; btn.disabled = true;
+
+            fetch('/api/generate', { method: 'POST', body: new FormData(this) })
+            .then(res => {
+                const header = res.headers.get('Content-Disposition');
+                const parts = header.split(';');
+                const filename = parts[1].split('=')[1].replace(/"/g, '');
+                return res.blob().then(blob => ({blob, filename}));
+            })
+            .then(({blob, filename}) => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none'; a.href = url; a.download = filename;
+                document.body.appendChild(a); a.click(); window.URL.revokeObjectURL(url);
+                btn.innerText = "Generate & Download PDF"; btn.disabled = false;
+                this.reset(); loadStats(); // Update stats automatically
+            }).catch(() => {
+                alert("Error generating ticket.");
+                btn.innerText = "Generate & Download PDF"; btn.disabled = false;
+            });
+        };
+    </script>
+</body>
+</html>
