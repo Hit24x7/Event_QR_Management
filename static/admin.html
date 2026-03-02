@@ -7,16 +7,18 @@
     <style>
         body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f4f4f9; }
         .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        h2 { margin-top: 0; color: #1F4F82; }
-        input { width: 100%; padding: 10px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; }
-        button { width: 100%; padding: 12px; background: #1F4F82; color: white; border: none; border-radius: 4px; font-size: 1.1em; font-weight: bold; }
-        .stats { display: flex; justify-content: space-between; }
-        .stat-box { text-align: center; background: #e9ecef; padding: 15px; border-radius: 8px; width: 45%; }
-        .stat-num { font-size: 2em; font-weight: bold; color: #1F4F82; }
+        h2 { margin-top: 0; color: #1F4F82; font-size: 1.5em;}
+        input, select { width: 100%; padding: 12px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 1em;}
+        button { width: 100%; padding: 12px; background: #1F4F82; color: white; border: none; border-radius: 4px; font-size: 1.1em; font-weight: bold; cursor: pointer;}
+        button.secondary { background: #28a745; margin-bottom: 15px;}
+        .stats { display: flex; justify-content: space-between; margin-bottom: 15px;}
+        .stat-box { text-align: center; background: #e9ecef; padding: 15px; border-radius: 8px; width: 30%; }
+        .stat-num { font-size: 1.5em; font-weight: bold; color: #1F4F82; }
+        .stat-label { font-size: 0.8em; color: #666; }
         #pin-screen { position: fixed; top:0; left:0; width:100%; height:100%; background:#1F4F82; color:white; display:flex; flex-direction:column; justify-content:center; align-items:center; z-index:999; }
         #pin-input { font-size: 2em; padding: 10px; width: 150px; text-align: center; border-radius: 8px; border:none; margin-bottom: 20px;}
         #app-content { display: none; }
-        .nav-btn { background: #ccc; padding: 10px; text-decoration: none; color: black; border-radius: 5px; display: block; text-align: center; margin-top: 20px;}
+        .nav-btn { background: #ccc; padding: 12px; text-decoration: none; color: black; border-radius: 5px; display: block; text-align: center; font-weight: bold;}
     </style>
 </head>
 <body>
@@ -24,67 +26,117 @@
     <div id="pin-screen">
         <h2>Enter Admin PIN</h2>
         <input type="password" id="pin-input" inputmode="numeric" maxlength="4">
-        <button onclick="checkPin()" style="background:#FFD700; color:#1F4F82; width:auto; padding:10px 30px;">Unlock</button>
+        <button onclick="checkPin()" style="background:#FFD700; color:#1F4F82; width:auto; padding:10px 40px;">Unlock</button>
     </div>
 
     <div id="app-content">
         <div class="card">
-            <h2>Live Event Stats</h2>
+            <h2>Live System Stats</h2>
             <div class="stats">
                 <div class="stat-box">
+                    <div class="stat-num" id="stat-events">-</div>
+                    <div class="stat-label">Events</div>
+                </div>
+                <div class="stat-box">
                     <div class="stat-num" id="stat-total">-</div>
-                    <div>Issued</div>
+                    <div class="stat-label">Tickets Issued</div>
                 </div>
                 <div class="stat-box">
                     <div class="stat-num" id="stat-scanned">-</div>
-                    <div>Scanned</div>
+                    <div class="stat-label">Scanned In</div>
                 </div>
             </div>
-            <button onclick="loadStats()" style="margin-top:15px; background:#6c757d; padding:8px;">Refresh Stats</button>
+            <button onclick="loadData()" style="background:#6c757d; padding:10px; font-size: 1em;">Refresh Data</button>
         </div>
 
-        <div class="card">
-            <h2>Generate Ticket</h2>
-            <form id="genForm">
-                <input type="text" name="event" placeholder="Event Name (e.g. Tech Summit)" required>
-                <input type="text" name="name" placeholder="Attendee Name" required>
+        <div class="card" style="border-left: 5px solid #28a745;">
+            <h2>1. Create New Event</h2>
+            <form id="eventForm">
+                <input type="text" name="name" placeholder="Event Name (e.g. Summer Music Fest)" required>
                 <input type="date" name="date" required>
-                <input type="text" name="venue" placeholder="Venue" required>
-                <input type="number" name="tickets" placeholder="Number of Tickets" value="1" required>
+                <input type="text" name="venue" placeholder="Venue Address" required>
+                <button type="submit" class="secondary" id="eventBtn">Save Event to Database</button>
+            </form>
+        </div>
+
+        <div class="card" style="border-left: 5px solid #1F4F82;">
+            <h2>2. Issue Ticket</h2>
+            <form id="genForm">
+                <select name="event_id" id="eventDropdown" required>
+                    <option value="" disabled selected>Loading Events...</option>
+                </select>
+                
+                <input type="text" name="name" placeholder="Attendee Full Name" required>
+                <input type="email" name="email" placeholder="Attendee Email (Optional)">
+                <input type="tel" name="phone" placeholder="Attendee Phone (Optional)">
+                <input type="number" name="tickets" placeholder="Number of Tickets" value="1" min="1" required>
                 <button type="submit" id="submitBtn">Generate & Download PDF</button>
             </form>
         </div>
 
-        <a href="index.html" class="nav-btn">Back to Scanner</a>
+        <a href="index.html" class="nav-btn">Back to Door Scanner</a>
     </div>
 
     <script>
-        const PIN = "1691"; // CHANGE THIS PIN HERE
+        const PIN = "1691"; // Default PIN
+
         function checkPin() {
             if(document.getElementById('pin-input').value === PIN) {
                 document.getElementById('pin-screen').style.display = 'none';
                 document.getElementById('app-content').style.display = 'block';
-                loadStats();
+                loadData();
             } else { alert("Incorrect PIN!"); }
         }
 
-        function loadStats() {
+        function loadData() {
+            // Load Stats
             fetch('/api/stats').then(r => r.json()).then(data => {
-                document.getElementById('stat-total').innerText = data.total;
+                document.getElementById('stat-events').innerText = data.events;
+                document.getElementById('stat-total').innerText = data.tickets;
                 document.getElementById('stat-scanned').innerText = data.scanned;
+            });
+
+            // Load Events into Dropdown
+            fetch('/api/events').then(r => r.json()).then(events => {
+                const dropdown = document.getElementById('eventDropdown');
+                dropdown.innerHTML = '<option value="" disabled selected>Select an Event...</option>';
+                events.forEach(e => {
+                    dropdown.innerHTML += `<option value="${e.id}">${e.name} (${e.date})</option>`;
+                });
             });
         }
 
+        // Handle Event Creation
+        document.getElementById('eventForm').onsubmit = function(e) {
+            e.preventDefault();
+            const btn = document.getElementById('eventBtn');
+            btn.innerText = "Saving..."; btn.disabled = true;
+
+            fetch('/api/events', { method: 'POST', body: new FormData(this) })
+            .then(res => res.json())
+            .then(data => {
+                alert("Event Created Successfully!");
+                btn.innerText = "Save Event to Database"; btn.disabled = false;
+                this.reset();
+                loadData(); // Refresh the dropdown list instantly
+            }).catch(() => {
+                alert("Error creating event.");
+                btn.innerText = "Save Event to Database"; btn.disabled = false;
+            });
+        };
+
+        // Handle Ticket Generation
         document.getElementById('genForm').onsubmit = function(e) {
             e.preventDefault();
             const btn = document.getElementById('submitBtn');
-            btn.innerText = "Generating..."; btn.disabled = true;
+            btn.innerText = "Generating PDF..."; btn.disabled = true;
 
             fetch('/api/generate', { method: 'POST', body: new FormData(this) })
             .then(res => {
+                if(!res.ok) throw new Error("Server Error");
                 const header = res.headers.get('Content-Disposition');
-                const parts = header.split(';');
-                const filename = parts[1].split('=')[1].replace(/"/g, '');
+                let filename = "Ticket.pdf";
+                if (header) filename = header.split(';')[1].split('=')[1].replace(/"/g, '');
                 return res.blob().then(blob => ({blob, filename}));
             })
             .then(({blob, filename}) => {
@@ -93,9 +145,10 @@
                 a.style.display = 'none'; a.href = url; a.download = filename;
                 document.body.appendChild(a); a.click(); window.URL.revokeObjectURL(url);
                 btn.innerText = "Generate & Download PDF"; btn.disabled = false;
-                this.reset(); loadStats(); // Update stats automatically
+                this.reset(); 
+                loadData(); // Update stats automatically
             }).catch(() => {
-                alert("Error generating ticket.");
+                alert("Error generating ticket. Please check the backend connection.");
                 btn.innerText = "Generate & Download PDF"; btn.disabled = false;
             });
         };

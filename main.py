@@ -23,7 +23,8 @@ app = FastAPI()
 MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://eventadmin:nfFQDqhnlTYbLHwl@cluster0.u2qj35x.mongodb.net/?appName=Cluster0")
 client = MongoClient(MONGO_URI)
 db = client["event_database"]
-tickets_collection = db["tickets"]
+events_collection = db["events"]       # NEW: Collection for Events
+tickets_collection = db["tickets"]     # EXISTING: Collection for Tickets
 
 LOGO_PATH = "logo.png"
 
@@ -118,34 +119,79 @@ def create_ticket_pdf_buffer(event, name, date, venue, tickets, ticket_id):
 
 # --- API ENDPOINTS ---
 
+# 1. Create a New Event
+@app.post("/api/events")
+def create_event(name: str = Form(...), date: str = Form(...), venue: str = Form(...)):
+    event_id = f"EVT-{uuid.uuid4().hex[:6].upper()}"
+    events_collection.insert_one({
+        "_id": event_id,
+        "name": name,
+        "date": date,
+        "venue": venue,
+        "created_at": datetime.now()
+    })
+    return {"status": "success", "event_id": event_id}
+
+# 2. Get All Events (For the Dropdown)
+@app.get("/api/events")
+def get_events():
+    events = list(events_collection.find().sort("created_at", -1))
+    return [{"id": e["_id"], "name": e["name"], "date": e["date"], "venue": e["venue"]} for e in events]
+
+# 3. Generate Ticket (Linked to Event)
 @app.post("/api/generate")
-def generate_ticket(event: str = Form(...), name: str = Form(...), date: str = Form(...), venue: str = Form(...), tickets: str = Form(...)):
-    # 1. Create DB Entry
+def generate_ticket(
+    event_id: str = Form(...), 
+    name: str = Form(...), 
+    email: str = Form(default=""), 
+    phone: str = Form(default=""), 
+    tickets: str = Form(...)
+):
+    # Fetch the parent event details
+    event = events_collection.find_one({"_id": event_id})
+    if not event:
+        raise HTTPException(status_code=404, detail="Event not found")
+
+    # Create DB Entry linking to the event_id and storing all attendee details
     ticket_id = f"TICKET-{uuid.uuid4().hex[:8].upper()}"
     tickets_collection.insert_one({
-        "_id": ticket_id, "name": name, "event": event,
-        "is_scanned": False, "scanned_at": None
+        "_id": ticket_id, 
+        "event_id": event_id,
+        "attendee_name": name, 
+        "attendee_email": email,
+        "attendee_phone": phone,
+        "tickets_count": tickets,
+        "is_scanned": False, 
+        "scanned_at": None
     })
     
-    # 2. Generate PDF and send it straight to the user's phone
-    pdf_buffer = create_ticket_pdf_buffer(event, name, date, venue, tickets, ticket_id)
+    # Generate PDF using the fetched event details
+    pdf_buffer = create_ticket_pdf_buffer(event["name"], name, event["date"], event["venue"], tickets, ticket_id)
     headers = {'Content-Disposition': f'attachment; filename="Ticket_{name.replace(" ", "_")}.pdf"'}
     return StreamingResponse(pdf_buffer, media_type="application/pdf", headers=headers)
 
+# 4. Scan Ticket
 @app.get("/api/scan/{ticket_id}")
 def scan_ticket(ticket_id: str):
     ticket = tickets_collection.find_one({"_id": ticket_id})
     if not ticket: return {"status": "error", "message": "Invalid Ticket!"}
-    if ticket["is_scanned"]: return {"status": "warning", "message": f"ALREADY USED! ({ticket['scanned_at']})", "name": ticket["name"]}
+    
+    event = events_collection.find_one({"_id": ticket["event_id"]})
+    event_name = event["name"] if event else "Unknown Event"
+
+    if ticket["is_scanned"]: 
+        return {"status": "warning", "message": f"ALREADY USED! ({ticket['scanned_at']})", "name": f"{ticket['attendee_name']} - {event_name}"}
     
     timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     tickets_collection.update_one({"_id": ticket_id}, {"$set": {"is_scanned": True, "scanned_at": timestamp}})
-    return {"status": "success", "message": "ENTRY GRANTED!", "name": ticket["name"]}
+    return {"status": "success", "message": "ENTRY GRANTED!", "name": f"{ticket['attendee_name']} - {event_name}"}
 
+# 5. Stats
 @app.get("/api/stats")
 def get_stats():
-    total = tickets_collection.count_documents({})
-    scanned = tickets_collection.count_documents({"is_scanned": True})
-    return {"total": total, "scanned": scanned}
+    total_events = events_collection.count_documents({})
+    total_tickets = tickets_collection.count_documents({})
+    scanned_tickets = tickets_collection.count_documents({"is_scanned": True})
+    return {"events": total_events, "tickets": total_tickets, "scanned": scanned_tickets}
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
