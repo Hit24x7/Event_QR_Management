@@ -89,6 +89,9 @@
                     <option value="" disabled selected>Select an Event...</option>
                 </select>
                 <input type="text" name="name" placeholder="Attendee Full Name" required>
+                <input type="email" name="email" placeholder="Attendee Email (Optional)">
+                <input type="tel" name="phone" placeholder="Attendee Phone (Optional)">
+                
                 <input type="number" name="tickets" placeholder="Number of Tickets" value="1" min="1" required>
                 <button type="submit" id="submitBtn">Generate PDF</button>
             </form>
@@ -108,7 +111,7 @@
     </div>
 
     <script>
-        const PIN = "1691";
+        const PIN = "1234";
 
         function checkPin() {
             if(document.getElementById('pin-input').value === PIN) {
@@ -119,12 +122,10 @@
         }
 
         function loadInitialData() {
-            // Load Events into both Dropdowns
             fetch('/api/events').then(r => r.json()).then(events => {
                 const filterDrop = document.getElementById('filterDropdown');
                 const issueDrop = document.getElementById('issueDropdown');
                 
-                // Keep the "ALL" option in filter, reset issue
                 filterDrop.innerHTML = '<option value="ALL">Global Overview (All Events)</option>';
                 issueDrop.innerHTML = '<option value="" disabled selected>Select an Event...</option>';
                 
@@ -134,7 +135,7 @@
                     issueDrop.innerHTML += opt;
                 });
             });
-            loadEventStats(); // Load Global Stats by default
+            loadEventStats(); 
         }
 
         function loadEventStats() {
@@ -143,14 +144,12 @@
             const url = isGlobal ? '/api/dashboard/global' : `/api/dashboard/event/${eventId}`;
 
             fetch(url).then(r => r.json()).then(data => {
-                // Toggle the 'Total Events' box visibility
                 document.getElementById('kpi-box-1').style.display = isGlobal ? 'block' : 'none';
                 if(isGlobal) document.getElementById('stat-events').innerText = data.events;
 
                 document.getElementById('stat-expected').innerText = data.expected;
                 document.getElementById('stat-arrived').innerText = data.arrived;
 
-                // Calculate Math for Progress Bar
                 let percent = 0;
                 if(data.expected > 0) percent = Math.round((data.arrived / data.expected) * 100);
                 document.getElementById('stat-percent').innerText = percent + "%";
@@ -158,7 +157,6 @@
                 if(percent > 0) document.getElementById('stat-bar').innerText = percent + "%";
                 else document.getElementById('stat-bar').innerText = "";
 
-                // Handle Recent Scans (Only for specific events)
                 const recentSec = document.getElementById('recent-scans-section');
                 if(!isGlobal && data.recent && data.recent.length > 0) {
                     recentSec.style.display = 'block';
@@ -177,7 +175,6 @@
             });
         }
 
-        // Handle Event Creation
         document.getElementById('eventForm').onsubmit = function(e) {
             e.preventDefault();
             const btn = document.getElementById('eventBtn');
@@ -192,7 +189,6 @@
             });
         };
 
-        // Handle Ticket Generation
         document.getElementById('genForm').onsubmit = function(e) {
             e.preventDefault();
             const btn = document.getElementById('submitBtn');
