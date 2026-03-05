@@ -1,20 +1,35 @@
 <!DOCTYPE html>
 <html>
 <head>
-    <title>Admin Dashboard</title>
+    <title>Manager Dashboard</title>
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <meta name="apple-mobile-web-app-capable" content="yes">
     <style>
-        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f4f4f9; }
-        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; }
-        h2 { margin-top: 0; color: #1F4F82; font-size: 1.5em;}
+        body { font-family: Arial, sans-serif; margin: 0; padding: 20px; background: #f4f4f9; color: #333; }
+        .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; border-top: 4px solid #1F4F82; }
+        h2 { margin-top: 0; color: #1F4F82; font-size: 1.4em;}
+        
+        /* Analytics Styling */
+        .kpi-container { display: flex; justify-content: space-between; margin-bottom: 20px; }
+        .kpi-box { text-align: center; background: #f8f9fa; padding: 15px 5px; border-radius: 8px; width: 31%; border: 1px solid #e9ecef;}
+        .kpi-num { font-size: 1.8em; font-weight: bold; color: #1F4F82; }
+        .kpi-label { font-size: 0.75em; color: #6c757d; text-transform: uppercase; font-weight: bold; margin-top: 5px; }
+        
+        /* Progress Bar */
+        .progress-container { width: 100%; background-color: #e9ecef; border-radius: 5px; overflow: hidden; margin-top: 10px; margin-bottom: 5px; }
+        .progress-bar { height: 20px; background-color: #28a745; width: 0%; transition: width 0.5s ease-in-out; text-align: center; color: white; font-size: 0.8em; line-height: 20px; font-weight: bold;}
+        
+        /* Recent Scans Table */
+        .recent-list { list-style: none; padding: 0; margin: 0; }
+        .recent-item { padding: 10px 0; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; font-size: 0.9em; }
+        .recent-item:last-child { border-bottom: none; }
+        .recent-name { font-weight: bold; color: #1F4F82; }
+        .recent-time { color: #6c757d; font-size: 0.85em; }
+
         input, select { width: 100%; padding: 12px; margin-bottom: 15px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 1em;}
         button { width: 100%; padding: 12px; background: #1F4F82; color: white; border: none; border-radius: 4px; font-size: 1.1em; font-weight: bold; cursor: pointer;}
-        button.secondary { background: #28a745; margin-bottom: 15px;}
-        .stats { display: flex; justify-content: space-between; margin-bottom: 15px;}
-        .stat-box { text-align: center; background: #e9ecef; padding: 15px; border-radius: 8px; width: 30%; }
-        .stat-num { font-size: 1.5em; font-weight: bold; color: #1F4F82; }
-        .stat-label { font-size: 0.8em; color: #666; }
+        button.secondary { background: #6c757d; font-size: 0.9em; padding: 10px; margin-bottom: 15px;}
+        
         #pin-screen { position: fixed; top:0; left:0; width:100%; height:100%; background:#1F4F82; color:white; display:flex; flex-direction:column; justify-content:center; align-items:center; z-index:999; }
         #pin-input { font-size: 2em; padding: 10px; width: 150px; text-align: center; border-radius: 8px; border:none; margin-bottom: 20px;}
         #app-content { display: none; }
@@ -30,47 +45,62 @@
     </div>
 
     <div id="app-content">
-        <div class="card">
-            <h2>Live System Stats</h2>
-            <div class="stats">
-                <div class="stat-box">
-                    <div class="stat-num" id="stat-events">-</div>
-                    <div class="stat-label">Events</div>
+        
+        <div class="card" style="border-top-color: #FFD700;">
+            <h2>📊 Analytics Dashboard</h2>
+            
+            <select id="filterDropdown" onchange="loadEventStats()" style="background: #f4f4f9; font-weight: bold;">
+                <option value="ALL">Global Overview (All Events)</option>
+            </select>
+
+            <div class="kpi-container">
+                <div class="kpi-box" id="kpi-box-1">
+                    <div class="kpi-num" id="stat-events">-</div>
+                    <div class="kpi-label">Total Events</div>
                 </div>
-                <div class="stat-box">
-                    <div class="stat-num" id="stat-total">-</div>
-                    <div class="stat-label">Tickets Issued</div>
+                <div class="kpi-box">
+                    <div class="kpi-num" id="stat-expected">-</div>
+                    <div class="kpi-label">Tickets Sold</div>
                 </div>
-                <div class="stat-box">
-                    <div class="stat-num" id="stat-scanned">-</div>
-                    <div class="stat-label">Scanned In</div>
+                <div class="kpi-box">
+                    <div class="kpi-num" id="stat-arrived">-</div>
+                    <div class="kpi-label">Total Arrived</div>
                 </div>
             </div>
-            <button onclick="loadData()" style="background:#6c757d; padding:10px; font-size: 1em;">Refresh Data</button>
+
+            <div style="font-size: 0.9em; font-weight: bold; color: #555;">Attendance Rate <span id="stat-percent" style="float:right;">0%</span></div>
+            <div class="progress-container">
+                <div class="progress-bar" id="stat-bar"></div>
+            </div>
+
+            <div id="recent-scans-section" style="display: none; margin-top: 20px;">
+                <h3 style="font-size: 1em; color: #1F4F82; margin-bottom: 10px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">Latest Arrivals</h3>
+                <ul class="recent-list" id="recent-list">
+                    </ul>
+            </div>
+            
+            <button class="secondary" onclick="loadEventStats()" style="margin-top: 15px;">🔄 Refresh Dashboard</button>
         </div>
 
-        <div class="card" style="border-left: 5px solid #28a745;">
-            <h2>1. Create New Event</h2>
-            <form id="eventForm">
-                <input type="text" name="name" placeholder="Event Name (e.g. Summer Music Fest)" required>
-                <input type="date" name="date" required>
-                <input type="text" name="venue" placeholder="Venue Address" required>
-                <button type="submit" class="secondary" id="eventBtn">Save Event to Database</button>
+        <div class="card">
+            <h2>🎟️ Issue Ticket</h2>
+            <form id="genForm">
+                <select name="event_id" id="issueDropdown" required>
+                    <option value="" disabled selected>Select an Event...</option>
+                </select>
+                <input type="text" name="name" placeholder="Attendee Full Name" required>
+                <input type="number" name="tickets" placeholder="Number of Tickets" value="1" min="1" required>
+                <button type="submit" id="submitBtn">Generate PDF</button>
             </form>
         </div>
 
-        <div class="card" style="border-left: 5px solid #1F4F82;">
-            <h2>2. Issue Ticket</h2>
-            <form id="genForm">
-                <select name="event_id" id="eventDropdown" required>
-                    <option value="" disabled selected>Loading Events...</option>
-                </select>
-                
-                <input type="text" name="name" placeholder="Attendee Full Name" required>
-                <input type="email" name="email" placeholder="Attendee Email (Optional)">
-                <input type="tel" name="phone" placeholder="Attendee Phone (Optional)">
-                <input type="number" name="tickets" placeholder="Number of Tickets" value="1" min="1" required>
-                <button type="submit" id="submitBtn">Generate & Download PDF</button>
+        <div class="card" style="border-top-color: #28a745;">
+            <h2>📅 Create New Event</h2>
+            <form id="eventForm">
+                <input type="text" name="name" placeholder="Event Name" required>
+                <input type="date" name="date" required>
+                <input type="text" name="venue" placeholder="Venue Address" required>
+                <button type="submit" id="eventBtn" style="background: #28a745;">Save Event</button>
             </form>
         </div>
 
@@ -78,31 +108,72 @@
     </div>
 
     <script>
-        const PIN = "1691"; // Default PIN
+        const PIN = "1691";
 
         function checkPin() {
             if(document.getElementById('pin-input').value === PIN) {
                 document.getElementById('pin-screen').style.display = 'none';
                 document.getElementById('app-content').style.display = 'block';
-                loadData();
+                loadInitialData();
             } else { alert("Incorrect PIN!"); }
         }
 
-        function loadData() {
-            // Load Stats
-            fetch('/api/stats').then(r => r.json()).then(data => {
-                document.getElementById('stat-events').innerText = data.events;
-                document.getElementById('stat-total').innerText = data.tickets;
-                document.getElementById('stat-scanned').innerText = data.scanned;
-            });
-
-            // Load Events into Dropdown
+        function loadInitialData() {
+            // Load Events into both Dropdowns
             fetch('/api/events').then(r => r.json()).then(events => {
-                const dropdown = document.getElementById('eventDropdown');
-                dropdown.innerHTML = '<option value="" disabled selected>Select an Event...</option>';
+                const filterDrop = document.getElementById('filterDropdown');
+                const issueDrop = document.getElementById('issueDropdown');
+                
+                // Keep the "ALL" option in filter, reset issue
+                filterDrop.innerHTML = '<option value="ALL">Global Overview (All Events)</option>';
+                issueDrop.innerHTML = '<option value="" disabled selected>Select an Event...</option>';
+                
                 events.forEach(e => {
-                    dropdown.innerHTML += `<option value="${e.id}">${e.name} (${e.date})</option>`;
+                    const opt = `<option value="${e.id}">${e.name} (${e.date})</option>`;
+                    filterDrop.innerHTML += opt;
+                    issueDrop.innerHTML += opt;
                 });
+            });
+            loadEventStats(); // Load Global Stats by default
+        }
+
+        function loadEventStats() {
+            const eventId = document.getElementById('filterDropdown').value;
+            const isGlobal = (eventId === "ALL");
+            const url = isGlobal ? '/api/dashboard/global' : `/api/dashboard/event/${eventId}`;
+
+            fetch(url).then(r => r.json()).then(data => {
+                // Toggle the 'Total Events' box visibility
+                document.getElementById('kpi-box-1').style.display = isGlobal ? 'block' : 'none';
+                if(isGlobal) document.getElementById('stat-events').innerText = data.events;
+
+                document.getElementById('stat-expected').innerText = data.expected;
+                document.getElementById('stat-arrived').innerText = data.arrived;
+
+                // Calculate Math for Progress Bar
+                let percent = 0;
+                if(data.expected > 0) percent = Math.round((data.arrived / data.expected) * 100);
+                document.getElementById('stat-percent').innerText = percent + "%";
+                document.getElementById('stat-bar').style.width = percent + "%";
+                if(percent > 0) document.getElementById('stat-bar').innerText = percent + "%";
+                else document.getElementById('stat-bar').innerText = "";
+
+                // Handle Recent Scans (Only for specific events)
+                const recentSec = document.getElementById('recent-scans-section');
+                if(!isGlobal && data.recent && data.recent.length > 0) {
+                    recentSec.style.display = 'block';
+                    const list = document.getElementById('recent-list');
+                    list.innerHTML = "";
+                    data.recent.forEach(r => {
+                        list.innerHTML += `
+                        <li class="recent-item">
+                            <div><span class="recent-name">${r.attendee_name}</span> (+${r.tickets_count})</div>
+                            <div class="recent-time">${r.scanned_at.split(" ")[1]} ${r.scanned_at.split(" ")[2]}</div>
+                        </li>`;
+                    });
+                } else {
+                    recentSec.style.display = 'none';
+                }
             });
         }
 
@@ -113,15 +184,11 @@
             btn.innerText = "Saving..."; btn.disabled = true;
 
             fetch('/api/events', { method: 'POST', body: new FormData(this) })
-            .then(res => res.json())
-            .then(data => {
-                alert("Event Created Successfully!");
-                btn.innerText = "Save Event to Database"; btn.disabled = false;
+            .then(() => {
+                alert("Event Created!");
+                btn.innerText = "Save Event"; btn.disabled = false;
                 this.reset();
-                loadData(); // Refresh the dropdown list instantly
-            }).catch(() => {
-                alert("Error creating event.");
-                btn.innerText = "Save Event to Database"; btn.disabled = false;
+                loadInitialData(); 
             });
         };
 
@@ -133,7 +200,7 @@
 
             fetch('/api/generate', { method: 'POST', body: new FormData(this) })
             .then(res => {
-                if(!res.ok) throw new Error("Server Error");
+                if(!res.ok) throw new Error("Error");
                 const header = res.headers.get('Content-Disposition');
                 let filename = "Ticket.pdf";
                 if (header) filename = header.split(';')[1].split('=')[1].replace(/"/g, '');
@@ -144,12 +211,9 @@
                 const a = document.createElement('a');
                 a.style.display = 'none'; a.href = url; a.download = filename;
                 document.body.appendChild(a); a.click(); window.URL.revokeObjectURL(url);
-                btn.innerText = "Generate & Download PDF"; btn.disabled = false;
+                btn.innerText = "Generate PDF"; btn.disabled = false;
                 this.reset(); 
-                loadData(); // Update stats automatically
-            }).catch(() => {
-                alert("Error generating ticket. Please check the backend connection.");
-                btn.innerText = "Generate & Download PDF"; btn.disabled = false;
+                loadEventStats(); 
             });
         };
     </script>
