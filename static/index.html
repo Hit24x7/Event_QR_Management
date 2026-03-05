@@ -12,10 +12,26 @@
         #pin-input { font-size: 2em; padding: 10px; width: 150px; text-align: center; border-radius: 8px; border:none; margin-bottom: 20px;}
         #pin-btn { font-size: 1.2em; padding: 10px 20px; border-radius: 8px; border:none; background: #FFD700; color: #1F4F82; font-weight: bold; cursor:pointer;}
         #app-content { display: none; }
-        #reader { width: 100%; max-width: 500px; margin: 0 auto; border-radius: 8px; overflow: hidden; }
-        #result { margin-top: 20px; padding: 15px; border-radius: 8px; font-weight: bold; font-size: 1.2em; display: none; }
-        .success { background: #d4edda; color: #155724; } .warning { background: #fff3cd; color: #856404; } .error { background: #f8d7da; color: #721c24; }
-        .nav-btn { background: #ccc; padding: 10px; text-decoration: none; color: black; border-radius: 5px; display: inline-block; margin-top: 20px;}
+        
+        #reader { width: 100%; max-width: 500px; margin: 0 auto; border-radius: 8px; overflow: hidden; background: black;}
+        
+        /* New styling for the detail card */
+        #result { margin-top: 20px; padding: 20px; border-radius: 8px; font-size: 1.1em; display: none; text-align: left; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
+        #result h2 { margin-top: 0; text-align: center; font-size: 1.8em; }
+        .detail-row { display: flex; justify-content: space-between; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid rgba(0,0,0,0.1); }
+        .detail-label { color: #555; font-size: 0.9em; text-transform: uppercase; }
+        .detail-value { font-weight: bold; font-size: 1.1em; }
+        .tickets-highlight { font-size: 1.5em; color: #1F4F82; }
+
+        .success { background: #d4edda; color: #155724; border: 2px solid #28a745; } 
+        .warning { background: #fff3cd; color: #856404; border: 2px solid #ffc107; } 
+        .error { background: #f8d7da; color: #721c24; border: 2px solid #dc3545; }
+        
+        button { margin-top: 20px; padding: 12px 25px; font-size: 1.1em; cursor: pointer; border-radius: 5px; border: none; font-weight: bold;}
+        .primary-btn { background: #1F4F82; color: white; width: 100%; max-width: 500px;}
+        .next-btn { background: #28a745; color: white; display: none; width: 100%; max-width: 500px; font-size: 1.2em; padding: 15px;}
+        
+        .nav-btn { background: #ccc; padding: 10px; text-decoration: none; color: black; border-radius: 5px; display: inline-block; margin-top: 20px; width: 100%; max-width: 480px; box-sizing: border-box;}
     </style>
 </head>
 <body>
@@ -26,16 +42,21 @@
     </div>
 
     <div id="app-content">
-        <h2>Door Scanner</h2>
+        <h2 style="color:#1F4F82; margin-top: 0;">Door Scanner</h2>
+        
         <div id="reader"></div>
+        <button id="start-btn" class="primary-btn" onclick="startScanner()">Start Camera</button>
+        
         <div id="result"></div>
-        <button onclick="startScanner()" style="padding:10px 20px; font-size:1em; margin-top:15px;">Start Camera</button>
+        
+        <button id="next-btn" class="next-btn" onclick="scanNext()">Scan Next Ticket</button>
+        
         <br>
         <a href="admin.html" class="nav-btn">Go to Admin Dashboard</a>
     </div>
 
     <script>
-        const PIN = "1691"; // CHANGE THIS PIN HERE
+        const PIN = "1234"; 
         function checkPin() {
             if(document.getElementById('pin-input').value === PIN) {
                 document.getElementById('pin-screen').style.display = 'none';
@@ -49,22 +70,64 @@
         function onScanSuccess(decodedText) {
             if (!isScanning) return;
             isScanning = false;
-            html5QrcodeScanner.pause();
+            html5QrcodeScanner.pause(); // Freeze the camera
+            
             const resultDiv = document.getElementById('result');
-            resultDiv.style.display = 'block'; resultDiv.innerHTML = "Checking..."; resultDiv.className = "";
+            const nextBtn = document.getElementById('next-btn');
+            
+            resultDiv.style.display = 'block'; 
+            resultDiv.innerHTML = "<h3 style='text-align:center;'>Checking database...</h3>"; 
+            resultDiv.className = "";
+            nextBtn.style.display = 'none';
 
             fetch(`/api/scan/${encodeURIComponent(decodedText)}`)
                 .then(r => r.json())
                 .then(data => {
                     resultDiv.className = data.status;
-                    resultDiv.innerHTML = `<div>${data.message}</div>` + (data.name ? `<div style='font-size:0.8em;'>Name: ${data.name}</div>` : "");
-                    setTimeout(() => { resultDiv.style.display = 'none'; isScanning = true; html5QrcodeScanner.resume(); }, 3000);
+                    
+                    if (data.status === "error") {
+                        resultDiv.innerHTML = `<h2>Invalid Ticket!</h2><p>This QR code does not exist in the database.</p>`;
+                    } else {
+                        // Build the details card
+                        resultDiv.innerHTML = `
+                            <h2>${data.message}</h2>
+                            <div class="detail-row">
+                                <span class="detail-label">Name</span>
+                                <span class="detail-value">${data.name}</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Tickets Admitted</span>
+                                <span class="detail-value tickets-highlight">${data.tickets_count}</span>
+                            </div>
+                            <div class="detail-row">
+                                <span class="detail-label">Event</span>
+                                <span class="detail-value" style="font-size: 0.9em;">${data.event}</span>
+                            </div>
+                            <div class="detail-row" style="border-bottom:none; margin-bottom:0; padding-bottom:0;">
+                                <span class="detail-label">Time</span>
+                                <span class="detail-value" style="font-size: 0.8em; color: #666;">${data.scanned_time}</span>
+                            </div>
+                        `;
+                    }
+                    // Show the big "Scan Next Ticket" button
+                    nextBtn.style.display = 'inline-block';
                 }).catch(err => {
-                    resultDiv.className = "error"; resultDiv.innerHTML = "Network Error!";
-                    setTimeout(() => { isScanning = true; html5QrcodeScanner.resume(); }, 3000);
+                    resultDiv.className = "error"; 
+                    resultDiv.innerHTML = "<h2 style='text-align:center;'>Network Error!</h2><p style='text-align:center;'>Check your internet connection.</p>";
+                    nextBtn.style.display = 'inline-block';
                 });
         }
+
+        function scanNext() {
+            // Hide the details and button, resume camera
+            document.getElementById('result').style.display = 'none';
+            document.getElementById('next-btn').style.display = 'none';
+            isScanning = true;
+            html5QrcodeScanner.resume();
+        }
+
         function startScanner() {
+            document.getElementById('start-btn').style.display = 'none';
             html5QrcodeScanner = new Html5QrcodeScanner("reader", { fps: 10, qrbox: {width: 250, height: 250} }, false);
             html5QrcodeScanner.render(onScanSuccess);
         }

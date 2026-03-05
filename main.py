@@ -2,7 +2,7 @@ import os
 import io
 import uuid
 import qrcode
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from fastapi import FastAPI, HTTPException, Form
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
@@ -23,10 +23,16 @@ app = FastAPI()
 MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://eventadmin:nfFQDqhnlTYbLHwl@cluster0.u2qj35x.mongodb.net/?appName=Cluster0")
 client = MongoClient(MONGO_URI)
 db = client["event_database"]
-events_collection = db["events"]       # NEW: Collection for Events
-tickets_collection = db["tickets"]     # EXISTING: Collection for Tickets
+events_collection = db["events"]
+tickets_collection = db["tickets"]
 
 LOGO_PATH = "logo.png"
+
+# --- TIMEZONE FIX (Indian Standard Time) ---
+IST = timezone(timedelta(hours=5, minutes=30))
+
+def get_ist_now():
+    return datetime.now(IST)
 
 # --- PDF GENERATION HELPERS ---
 def _fit_title_font(event_text, max_width, base_size=17, min_size=11, font_name="Helvetica-Bold"):
@@ -110,7 +116,7 @@ def create_ticket_pdf_buffer(event, name, date, venue, tickets, ticket_id):
     c.setFont("Helvetica", 8)
     c.setFillColor(colors.grey)
     c.drawString(card_x + 16, card_y + 8, f"Ticket ID: {ticket_id}")
-    c.drawRightString(card_x + card_w - 16, card_y + 8, f"Issued: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
+    c.drawRightString(card_x + card_w - 16, card_y + 8, f"Issued: {get_ist_now().strftime('%Y-%m-%d %I:%M %p')}")
 
     c.showPage()
     c.save()
@@ -119,7 +125,6 @@ def create_ticket_pdf_buffer(event, name, date, venue, tickets, ticket_id):
 
 # --- API ENDPOINTS ---
 
-# 1. Create a New Event
 @app.post("/api/events")
 def create_event(name: str = Form(...), date: str = Form(...), venue: str = Form(...)):
     event_id = f"EVT-{uuid.uuid4().hex[:6].upper()}"
@@ -128,17 +133,15 @@ def create_event(name: str = Form(...), date: str = Form(...), venue: str = Form
         "name": name,
         "date": date,
         "venue": venue,
-        "created_at": datetime.now()
+        "created_at": get_ist_now()
     })
     return {"status": "success", "event_id": event_id}
 
-# 2. Get All Events (For the Dropdown)
 @app.get("/api/events")
 def get_events():
     events = list(events_collection.find().sort("created_at", -1))
     return [{"id": e["_id"], "name": e["name"], "date": e["date"], "venue": e["venue"]} for e in events]
 
-# 3. Generate Ticket (Linked to Event)
 @app.post("/api/generate")
 def generate_ticket(
     event_id: str = Form(...), 
@@ -147,12 +150,10 @@ def generate_ticket(
     phone: str = Form(default=""), 
     tickets: str = Form(...)
 ):
-    # Fetch the parent event details
     event = events_collection.find_one({"_id": event_id})
     if not event:
         raise HTTPException(status_code=404, detail="Event not found")
 
-    # Create DB Entry linking to the event_id and storing all attendee details
     ticket_id = f"TICKET-{uuid.uuid4().hex[:8].upper()}"
     tickets_collection.insert_one({
         "_id": ticket_id, 
@@ -162,15 +163,14 @@ def generate_ticket(
         "attendee_phone": phone,
         "tickets_count": tickets,
         "is_scanned": False, 
-        "scanned_at": None
+        "scanned_at": None,
+        "created_at": get_ist_now()
     })
     
-    # Generate PDF using the fetched event details
     pdf_buffer = create_ticket_pdf_buffer(event["name"], name, event["date"], event["venue"], tickets, ticket_id)
     headers = {'Content-Disposition': f'attachment; filename="Ticket_{name.replace(" ", "_")}.pdf"'}
     return StreamingResponse(pdf_buffer, media_type="application/pdf", headers=headers)
 
-# 4. Scan Ticket
 @app.get("/api/scan/{ticket_id}")
 def scan_ticket(ticket_id: str):
     ticket = tickets_collection.find_one({"_id": ticket_id})
@@ -179,14 +179,30 @@ def scan_ticket(ticket_id: str):
     event = events_collection.find_one({"_id": ticket["event_id"]})
     event_name = event["name"] if event else "Unknown Event"
 
+    # If already scanned
     if ticket["is_scanned"]: 
-        return {"status": "warning", "message": f"ALREADY USED! ({ticket['scanned_at']})", "name": f"{ticket['attendee_name']} - {event_name}"}
+        return {
+            "status": "warning", 
+            "message": "ALREADY SCANNED!", 
+            "name": ticket['attendee_name'],
+            "event": event_name,
+            "tickets_count": ticket['tickets_count'],
+            "scanned_time": ticket['scanned_at']
+        }
     
-    timestamp = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+    # If valid, format the time in a nice 12-hour format with AM/PM
+    timestamp = get_ist_now().strftime("%d-%b-%Y %I:%M %p")
     tickets_collection.update_one({"_id": ticket_id}, {"$set": {"is_scanned": True, "scanned_at": timestamp}})
-    return {"status": "success", "message": "ENTRY GRANTED!", "name": f"{ticket['attendee_name']} - {event_name}"}
+    
+    return {
+        "status": "success", 
+        "message": "ENTRY GRANTED", 
+        "name": ticket['attendee_name'],
+        "event": event_name,
+        "tickets_count": ticket['tickets_count'],
+        "scanned_time": timestamp
+    }
 
-# 5. Stats
 @app.get("/api/stats")
 def get_stats():
     total_events = events_collection.count_documents({})
