@@ -38,7 +38,7 @@
     <div id="pin-screen">
         <h2>Enter Admin PIN</h2>
         <input type="password" id="pin-input" inputmode="numeric" maxlength="4">
-        <button onclick="checkPin()" style="background:#FFD700; color:#1F4F82; width:auto; padding:10px 40px;">Unlock</button>
+        <button onclick="checkPin()" style="background:#FFD700; color:#1F4F82; width:auto; padding:10px 40px;">Unlock Admin</button>
     </div>
 
     <div id="app-content">
@@ -89,7 +89,7 @@
                 <input type="email" name="email" placeholder="Attendee Email (Optional)">
                 <input type="tel" name="phone" placeholder="Attendee Phone (Optional)">
                 <input type="number" name="tickets" placeholder="Number of Tickets" value="1" min="1" required>
-                <button type="submit" id="submitBtn">Generate & Send Ticket</button>
+                <button type="submit" id="submitBtn">Generate Ticket</button>
             </form>
         </div>
 
@@ -111,10 +111,10 @@
 
         function checkPin() {
             sessionToken = document.getElementById('pin-input').value;
-            // Securely verify PIN with backend
-            fetch('/api/events', { headers: { 'X-Admin-Token': sessionToken } })
+            // Verify against an Admin-only endpoint!
+            fetch('/api/dashboard/global', { headers: { 'X-Token': sessionToken } })
             .then(res => {
-                if (res.status === 401 || res.status === 403) { alert("Incorrect PIN! Unauthorized."); } 
+                if (res.status === 401 || res.status === 403) { alert("Incorrect Admin PIN! Unauthorized."); } 
                 else {
                     document.getElementById('pin-screen').style.display = 'none';
                     document.getElementById('app-content').style.display = 'block';
@@ -123,7 +123,7 @@
             }).catch(e => alert("Error connecting to server."));
         }
 
-        function getAuthHeaders() { return { 'X-Admin-Token': sessionToken }; }
+        function getAuthHeaders() { return { 'X-Token': sessionToken }; }
 
         function loadInitialData() {
             fetch('/api/events', { headers: getAuthHeaders() }).then(r => r.json()).then(events => {
@@ -208,14 +208,18 @@
         document.getElementById('genForm').onsubmit = function(e) {
             e.preventDefault();
             const btn = document.getElementById('submitBtn');
-            btn.innerText = "Generating & Emailing..."; btn.disabled = true;
+            btn.innerText = "Generating PDF..."; btn.disabled = true;
 
             fetch('/api/generate', { method: 'POST', body: new FormData(this), headers: getAuthHeaders() })
             .then(res => {
-                if(!res.ok) throw new Error("Error");
+                if(!res.ok) throw new Error("Server Error");
                 const header = res.headers.get('Content-Disposition');
                 let filename = "Ticket.pdf";
-                if (header) filename = header.split(';')[1].split('=')[1].replace(/"/g, '');
+                
+                if (header && header.includes('filename=')) {
+                    filename = header.split('filename=')[1].replace(/"/g, '');
+                }
+                
                 return res.blob().then(blob => ({blob, filename}));
             })
             .then(({blob, filename}) => {
@@ -223,11 +227,12 @@
                 const a = document.createElement('a');
                 a.style.display = 'none'; a.href = url; a.download = filename;
                 document.body.appendChild(a); a.click(); window.URL.revokeObjectURL(url);
-                btn.innerText = "Generate & Send Ticket"; btn.disabled = false;
+                btn.innerText = "Generate Ticket"; btn.disabled = false;
                 this.reset(); loadEventStats(); 
-            }).catch(() => {
-                alert("Error generating ticket.");
-                btn.innerText = "Generate & Send Ticket"; btn.disabled = false;
+            }).catch((err) => {
+                console.error(err);
+                alert("An error occurred. Check your internet connection.");
+                btn.innerText = "Generate Ticket"; btn.disabled = false;
             });
         };
     </script>
