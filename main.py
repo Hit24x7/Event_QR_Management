@@ -1,9 +1,12 @@
 import os
 import io
+import csv
 import uuid
 import qrcode
+import smtplib
+from email.message import EmailMessage
 from datetime import datetime, timezone, timedelta
-from fastapi import FastAPI, HTTPException, Form
+from fastapi import FastAPI, HTTPException, Form, Header, Depends
 from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pymongo import MongoClient
@@ -19,20 +22,49 @@ from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
 
 app = FastAPI()
 
-# Database Connection
-MONGO_URI = os.getenv("MONGO_URI", "mongodb+srv://eventadmin:nfFQDqhnlTYbLHwl@cluster0.u2qj35x.mongodb.net/?appName=Cluster0")
+# --- CONFIGURATION & SECURITY ---
+MONGO_URI = os.getenv("MONGO_URI", "your_mongodb_uri_here")
+ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "1234") # The secret key!
+SMTP_EMAIL = os.getenv("SMTP_EMAIL", "") # Your gmail
+SMTP_PASSWORD = os.getenv("SMTP_PASSWORD", "") # Your 16-letter app password
+
 client = MongoClient(MONGO_URI)
 db = client["event_database"]
 events_collection = db["events"]
 tickets_collection = db["tickets"]
-
 LOGO_PATH = "logo.png"
-
-# --- TIMEZONE FIX ---
 IST = timezone(timedelta(hours=5, minutes=30))
+
 def get_ist_now(): return datetime.now(IST)
 
-# --- PDF GENERATION HELPERS (Same as before) ---
+# Security Dependency
+def verify_token(x_admin_token: str = Header(None)):
+    if x_admin_token != ADMIN_TOKEN:
+        raise HTTPException(status_code=401, detail="Unauthorized Access!")
+
+# --- EMAIL SENDER ---
+def send_ticket_email(recipient_email, attendee_name, event_name, pdf_buffer, filename):
+    if not SMTP_EMAIL or not SMTP_PASSWORD or not recipient_email:
+        return # Skip if email isn't configured or no email provided
+    
+    msg = EmailMessage()
+    msg["Subject"] = f"Your Ticket for {event_name}"
+    msg["From"] = SMTP_EMAIL
+    msg["To"] = recipient_email
+    msg.set_content(f"Hi {attendee_name},\n\nYour ticket for {event_name} is confirmed!\n\nPlease find your official PDF ticket attached to this email. Have it ready on your phone at the door.\n\nSee you there!")
+    
+    pdf_buffer.seek(0)
+    msg.add_attachment(pdf_buffer.read(), maintype="application", subtype="pdf", filename=filename)
+    
+    try:
+        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
+            server.login(SMTP_EMAIL, SMTP_PASSWORD)
+            server.send_message(msg)
+    except Exception as e:
+        print(f"Email failed to send: {e}")
+
+# --- PDF GENERATION HELPERS (Truncated for space, keep your exact previous PDF functions here) ---
+# Paste your _fit_title_font, _pil_to_rlimage, generate_qr_for_id, and create_ticket_pdf_buffer here exactly as they were!
 def _fit_title_font(event_text, max_width, base_size=17, min_size=11, font_name="Helvetica-Bold"):
     size = base_size
     while size >= min_size:
@@ -121,20 +153,21 @@ def create_ticket_pdf_buffer(event, name, date, venue, tickets, ticket_id):
     buffer.seek(0)
     return buffer
 
-# --- API ENDPOINTS ---
 
-@app.post("/api/events")
+# --- SECURE API ENDPOINTS ---
+
+@app.post("/api/events", dependencies=[Depends(verify_token)])
 def create_event(name: str = Form(...), date: str = Form(...), venue: str = Form(...)):
     event_id = f"EVT-{uuid.uuid4().hex[:6].upper()}"
     events_collection.insert_one({"_id": event_id, "name": name, "date": date, "venue": venue, "created_at": get_ist_now()})
     return {"status": "success", "event_id": event_id}
 
-@app.get("/api/events")
+@app.get("/api/events", dependencies=[Depends(verify_token)])
 def get_events():
     events = list(events_collection.find().sort("created_at", -1))
     return [{"id": e["_id"], "name": e["name"], "date": e["date"], "venue": e["venue"]} for e in events]
 
-@app.post("/api/generate")
+@app.post("/api/generate", dependencies=[Depends(verify_token)])
 def generate_ticket(event_id: str = Form(...), name: str = Form(...), email: str = Form(default=""), phone: str = Form(default=""), tickets: str = Form(...)):
     event = events_collection.find_one({"_id": event_id})
     if not event: raise HTTPException(status_code=404, detail="Event not found")
@@ -146,10 +179,18 @@ def generate_ticket(event_id: str = Form(...), name: str = Form(...), email: str
     })
     
     pdf_buffer = create_ticket_pdf_buffer(event["name"], name, event["date"], event["venue"], tickets, ticket_id)
-    headers = {'Content-Disposition': f'attachment; filename="Ticket_{name.replace(" ", "_")}.pdf"'}
+    filename = f"Ticket_{name.replace(' ', '_')}.pdf"
+    
+    # Send Automated Email if provided
+    if email:
+        send_ticket_email(email, name, event["name"], pdf_buffer, filename)
+
+    # Return PDF to Dashboard
+    pdf_buffer.seek(0)
+    headers = {'Content-Disposition': f'attachment; filename="{filename}"'}
     return StreamingResponse(pdf_buffer, media_type="application/pdf", headers=headers)
 
-@app.get("/api/scan/{ticket_id}")
+@app.get("/api/scan/{ticket_id}", dependencies=[Depends(verify_token)])
 def scan_ticket(ticket_id: str):
     ticket = tickets_collection.find_one({"_id": ticket_id})
     if not ticket: return {"status": "error", "message": "Invalid Ticket!"}
@@ -162,64 +203,47 @@ def scan_ticket(ticket_id: str):
     
     timestamp = get_ist_now().strftime("%d-%b-%Y %I:%M %p")
     tickets_collection.update_one({"_id": ticket_id}, {"$set": {"is_scanned": True, "scanned_at": timestamp}})
-    
     return {"status": "success", "message": "ENTRY GRANTED", "name": ticket['attendee_name'], "event": event_name, "tickets_count": ticket['tickets_count'], "scanned_time": timestamp}
 
+# --- NEW CSV EXPORT ENDPOINT ---
+@app.get("/api/export/{event_id}", dependencies=[Depends(verify_token)])
+def export_guests(event_id: str):
+    event = events_collection.find_one({"_id": event_id})
+    if not event: raise HTTPException(status_code=404, detail="Event not found")
 
-# ========================================================
-# ADVANCED ANALYTICS ENDPOINTS (MongoDB Aggregation)
-# ========================================================
+    tickets = tickets_collection.find({"event_id": event_id}).sort("created_at", 1)
 
-@app.get("/api/dashboard/global")
+    buffer = io.StringIO()
+    writer = csv.writer(buffer)
+    writer.writerow(["Ticket ID", "Attendee Name", "Email", "Phone", "Tickets Bought", "Has Scanned In?", "Scan Time"])
+
+    for t in tickets:
+        writer.writerow([
+            t["_id"], t.get("attendee_name", ""), t.get("attendee_email", ""), 
+            t.get("attendee_phone", ""), t.get("tickets_count", ""), 
+            "Yes" if t.get("is_scanned") else "No", t.get("scanned_at", "")
+        ])
+
+    buffer.seek(0)
+    return StreamingResponse(buffer, media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=GuestList_{event['name']}.csv"})
+
+# Keep existing Dashboard endpoints (ensure they also require dependencies=[Depends(verify_token)])
+@app.get("/api/dashboard/global", dependencies=[Depends(verify_token)])
 def get_global_stats():
-    # Total Events
     total_events = events_collection.count_documents({})
-    
-    # Total Tickets Expected (Summing the actual ticket count)
-    pipeline_total = [
-        {"$addFields": {"tickets_int": {"$toInt": "$tickets_count"}}},
-        {"$group": {"_id": None, "total": {"$sum": "$tickets_int"}}}
-    ]
-    expected_res = list(tickets_collection.aggregate(pipeline_total))
-    expected = expected_res[0]["total"] if expected_res else 0
-
-    # Total Tickets Arrived (Summing only where is_scanned is true)
-    pipeline_scanned = [
-        {"$match": {"is_scanned": True}},
-        {"$addFields": {"tickets_int": {"$toInt": "$tickets_count"}}},
-        {"$group": {"_id": None, "total": {"$sum": "$tickets_int"}}}
-    ]
-    arrived_res = list(tickets_collection.aggregate(pipeline_scanned))
-    arrived = arrived_res[0]["total"] if arrived_res else 0
-
+    pipeline_total = [{"$addFields": {"tickets_int": {"$toInt": "$tickets_count"}}}, {"$group": {"_id": None, "total": {"$sum": "$tickets_int"}}}]
+    expected = list(tickets_collection.aggregate(pipeline_total))[0]["total"] if list(tickets_collection.aggregate(pipeline_total)) else 0
+    pipeline_scanned = [{"$match": {"is_scanned": True}}, {"$addFields": {"tickets_int": {"$toInt": "$tickets_count"}}}, {"$group": {"_id": None, "total": {"$sum": "$tickets_int"}}}]
+    arrived = list(tickets_collection.aggregate(pipeline_scanned))[0]["total"] if list(tickets_collection.aggregate(pipeline_scanned)) else 0
     return {"events": total_events, "expected": expected, "arrived": arrived}
 
-@app.get("/api/dashboard/event/{event_id}")
+@app.get("/api/dashboard/event/{event_id}", dependencies=[Depends(verify_token)])
 def get_event_stats(event_id: str):
-    # Sum tickets for this specific event
-    pipeline_total = [
-        {"$match": {"event_id": event_id}},
-        {"$addFields": {"tickets_int": {"$toInt": "$tickets_count"}}},
-        {"$group": {"_id": None, "total": {"$sum": "$tickets_int"}}}
-    ]
-    expected_res = list(tickets_collection.aggregate(pipeline_total))
-    expected = expected_res[0]["total"] if expected_res else 0
-
-    # Sum arrived for this specific event
-    pipeline_scanned = [
-        {"$match": {"event_id": event_id, "is_scanned": True}},
-        {"$addFields": {"tickets_int": {"$toInt": "$tickets_count"}}},
-        {"$group": {"_id": None, "total": {"$sum": "$tickets_int"}}}
-    ]
-    arrived_res = list(tickets_collection.aggregate(pipeline_scanned))
-    arrived = arrived_res[0]["total"] if arrived_res else 0
-
-    # Get the last 5 people who walked through the door
-    recent = list(tickets_collection.find(
-        {"event_id": event_id, "is_scanned": True}, 
-        {"_id": 0, "attendee_name": 1, "tickets_count": 1, "scanned_at": 1}
-    ).sort("scanned_at", -1).limit(5))
-
+    pipeline_total = [{"$match": {"event_id": event_id}}, {"$addFields": {"tickets_int": {"$toInt": "$tickets_count"}}}, {"$group": {"_id": None, "total": {"$sum": "$tickets_int"}}}]
+    expected = list(tickets_collection.aggregate(pipeline_total))[0]["total"] if list(tickets_collection.aggregate(pipeline_total)) else 0
+    pipeline_scanned = [{"$match": {"event_id": event_id, "is_scanned": True}}, {"$addFields": {"tickets_int": {"$toInt": "$tickets_count"}}}, {"$group": {"_id": None, "total": {"$sum": "$tickets_int"}}}]
+    arrived = list(tickets_collection.aggregate(pipeline_scanned))[0]["total"] if list(tickets_collection.aggregate(pipeline_scanned)) else 0
+    recent = list(tickets_collection.find({"event_id": event_id, "is_scanned": True}, {"_id": 0, "attendee_name": 1, "tickets_count": 1, "scanned_at": 1}).sort("scanned_at", -1).limit(5))
     return {"expected": expected, "arrived": arrived, "recent": recent}
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")

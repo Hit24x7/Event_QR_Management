@@ -9,17 +9,14 @@
         .card { background: white; padding: 20px; border-radius: 8px; box-shadow: 0 4px 6px rgba(0,0,0,0.1); margin-bottom: 20px; border-top: 4px solid #1F4F82; }
         h2 { margin-top: 0; color: #1F4F82; font-size: 1.4em;}
         
-        /* Analytics Styling */
         .kpi-container { display: flex; justify-content: space-between; margin-bottom: 20px; }
         .kpi-box { text-align: center; background: #f8f9fa; padding: 15px 5px; border-radius: 8px; width: 31%; border: 1px solid #e9ecef;}
         .kpi-num { font-size: 1.8em; font-weight: bold; color: #1F4F82; }
         .kpi-label { font-size: 0.75em; color: #6c757d; text-transform: uppercase; font-weight: bold; margin-top: 5px; }
         
-        /* Progress Bar */
         .progress-container { width: 100%; background-color: #e9ecef; border-radius: 5px; overflow: hidden; margin-top: 10px; margin-bottom: 5px; }
         .progress-bar { height: 20px; background-color: #28a745; width: 0%; transition: width 0.5s ease-in-out; text-align: center; color: white; font-size: 0.8em; line-height: 20px; font-weight: bold;}
         
-        /* Recent Scans Table */
         .recent-list { list-style: none; padding: 0; margin: 0; }
         .recent-item { padding: 10px 0; border-bottom: 1px solid #eee; display: flex; justify-content: space-between; font-size: 0.9em; }
         .recent-item:last-child { border-bottom: none; }
@@ -75,11 +72,11 @@
 
             <div id="recent-scans-section" style="display: none; margin-top: 20px;">
                 <h3 style="font-size: 1em; color: #1F4F82; margin-bottom: 10px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">Latest Arrivals</h3>
-                <ul class="recent-list" id="recent-list">
-                    </ul>
+                <ul class="recent-list" id="recent-list"></ul>
             </div>
             
             <button class="secondary" onclick="loadEventStats()" style="margin-top: 15px;">🔄 Refresh Dashboard</button>
+            <button id="exportBtn" style="display:none; background:#28a745; margin-top:10px;">📥 Download Guest List (CSV)</button>
         </div>
 
         <div class="card">
@@ -91,9 +88,8 @@
                 <input type="text" name="name" placeholder="Attendee Full Name" required>
                 <input type="email" name="email" placeholder="Attendee Email (Optional)">
                 <input type="tel" name="phone" placeholder="Attendee Phone (Optional)">
-                
                 <input type="number" name="tickets" placeholder="Number of Tickets" value="1" min="1" required>
-                <button type="submit" id="submitBtn">Generate PDF</button>
+                <button type="submit" id="submitBtn">Generate & Send Ticket</button>
             </form>
         </div>
 
@@ -111,24 +107,30 @@
     </div>
 
     <script>
-        const PIN = "1234";
+        let sessionToken = "";
 
         function checkPin() {
-            if(document.getElementById('pin-input').value === PIN) {
-                document.getElementById('pin-screen').style.display = 'none';
-                document.getElementById('app-content').style.display = 'block';
-                loadInitialData();
-            } else { alert("Incorrect PIN!"); }
+            sessionToken = document.getElementById('pin-input').value;
+            // Securely verify PIN with backend
+            fetch('/api/events', { headers: { 'X-Admin-Token': sessionToken } })
+            .then(res => {
+                if (res.status === 401 || res.status === 403) { alert("Incorrect PIN! Unauthorized."); } 
+                else {
+                    document.getElementById('pin-screen').style.display = 'none';
+                    document.getElementById('app-content').style.display = 'block';
+                    loadInitialData();
+                }
+            }).catch(e => alert("Error connecting to server."));
         }
 
+        function getAuthHeaders() { return { 'X-Admin-Token': sessionToken }; }
+
         function loadInitialData() {
-            fetch('/api/events').then(r => r.json()).then(events => {
+            fetch('/api/events', { headers: getAuthHeaders() }).then(r => r.json()).then(events => {
                 const filterDrop = document.getElementById('filterDropdown');
                 const issueDrop = document.getElementById('issueDropdown');
-                
                 filterDrop.innerHTML = '<option value="ALL">Global Overview (All Events)</option>';
                 issueDrop.innerHTML = '<option value="" disabled selected>Select an Event...</option>';
-                
                 events.forEach(e => {
                     const opt = `<option value="${e.id}">${e.name} (${e.date})</option>`;
                     filterDrop.innerHTML += opt;
@@ -143,7 +145,7 @@
             const isGlobal = (eventId === "ALL");
             const url = isGlobal ? '/api/dashboard/global' : `/api/dashboard/event/${eventId}`;
 
-            fetch(url).then(r => r.json()).then(data => {
+            fetch(url, { headers: getAuthHeaders() }).then(r => r.json()).then(data => {
                 document.getElementById('kpi-box-1').style.display = isGlobal ? 'block' : 'none';
                 if(isGlobal) document.getElementById('stat-events').innerText = data.events;
 
@@ -157,21 +159,36 @@
                 if(percent > 0) document.getElementById('stat-bar').innerText = percent + "%";
                 else document.getElementById('stat-bar').innerText = "";
 
+                // Show/Hide CSV Button
+                const exportBtn = document.getElementById('exportBtn');
+                if(!isGlobal) { 
+                    exportBtn.style.display = 'block'; 
+                    exportBtn.onclick = () => downloadCSV(eventId); 
+                } else { 
+                    exportBtn.style.display = 'none'; 
+                }
+
+                // Recent Scans List
                 const recentSec = document.getElementById('recent-scans-section');
                 if(!isGlobal && data.recent && data.recent.length > 0) {
                     recentSec.style.display = 'block';
                     const list = document.getElementById('recent-list');
                     list.innerHTML = "";
                     data.recent.forEach(r => {
-                        list.innerHTML += `
-                        <li class="recent-item">
-                            <div><span class="recent-name">${r.attendee_name}</span> (+${r.tickets_count})</div>
-                            <div class="recent-time">${r.scanned_at.split(" ")[1]} ${r.scanned_at.split(" ")[2]}</div>
-                        </li>`;
+                        list.innerHTML += `<li class="recent-item"><div><span class="recent-name">${r.attendee_name}</span> (+${r.tickets_count})</div><div class="recent-time">${r.scanned_at.split(" ")[1]} ${r.scanned_at.split(" ")[2]}</div></li>`;
                     });
-                } else {
-                    recentSec.style.display = 'none';
-                }
+                } else { recentSec.style.display = 'none'; }
+            });
+        }
+
+        function downloadCSV(eventId) {
+            fetch(`/api/export/${eventId}`, { headers: getAuthHeaders() })
+            .then(res => res.blob())
+            .then(blob => {
+                const url = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none'; a.href = url; a.download = `GuestList.csv`;
+                document.body.appendChild(a); a.click(); window.URL.revokeObjectURL(url);
             });
         }
 
@@ -180,21 +197,20 @@
             const btn = document.getElementById('eventBtn');
             btn.innerText = "Saving..."; btn.disabled = true;
 
-            fetch('/api/events', { method: 'POST', body: new FormData(this) })
+            fetch('/api/events', { method: 'POST', body: new FormData(this), headers: getAuthHeaders() })
             .then(() => {
                 alert("Event Created!");
                 btn.innerText = "Save Event"; btn.disabled = false;
-                this.reset();
-                loadInitialData(); 
+                this.reset(); loadInitialData(); 
             });
         };
 
         document.getElementById('genForm').onsubmit = function(e) {
             e.preventDefault();
             const btn = document.getElementById('submitBtn');
-            btn.innerText = "Generating PDF..."; btn.disabled = true;
+            btn.innerText = "Generating & Emailing..."; btn.disabled = true;
 
-            fetch('/api/generate', { method: 'POST', body: new FormData(this) })
+            fetch('/api/generate', { method: 'POST', body: new FormData(this), headers: getAuthHeaders() })
             .then(res => {
                 if(!res.ok) throw new Error("Error");
                 const header = res.headers.get('Content-Disposition');
@@ -207,9 +223,11 @@
                 const a = document.createElement('a');
                 a.style.display = 'none'; a.href = url; a.download = filename;
                 document.body.appendChild(a); a.click(); window.URL.revokeObjectURL(url);
-                btn.innerText = "Generate PDF"; btn.disabled = false;
-                this.reset(); 
-                loadEventStats(); 
+                btn.innerText = "Generate & Send Ticket"; btn.disabled = false;
+                this.reset(); loadEventStats(); 
+            }).catch(() => {
+                alert("Error generating ticket.");
+                btn.innerText = "Generate & Send Ticket"; btn.disabled = false;
             });
         };
     </script>

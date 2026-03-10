@@ -15,7 +15,6 @@
         
         #reader { width: 100%; max-width: 500px; margin: 0 auto; border-radius: 8px; overflow: hidden; background: black;}
         
-        /* New styling for the detail card */
         #result { margin-top: 20px; padding: 20px; border-radius: 8px; font-size: 1.1em; display: none; text-align: left; box-shadow: 0 4px 8px rgba(0,0,0,0.1); }
         #result h2 { margin-top: 0; text-align: center; font-size: 1.8em; }
         .detail-row { display: flex; justify-content: space-between; margin-bottom: 10px; padding-bottom: 10px; border-bottom: 1px solid rgba(0,0,0,0.1); }
@@ -56,12 +55,19 @@
     </div>
 
     <script>
-        const PIN = "1234"; 
+        let sessionToken = "";
+
         function checkPin() {
-            if(document.getElementById('pin-input').value === PIN) {
-                document.getElementById('pin-screen').style.display = 'none';
-                document.getElementById('app-content').style.display = 'block';
-            } else { alert("Incorrect PIN!"); }
+            sessionToken = document.getElementById('pin-input').value;
+            // Quick check to see if token is valid
+            fetch('/api/stats', { headers: { 'X-Admin-Token': sessionToken } })
+            .then(res => {
+                if (res.status === 401 || res.status === 403) { alert("Incorrect PIN! Unauthorized."); }
+                else {
+                    document.getElementById('pin-screen').style.display = 'none';
+                    document.getElementById('app-content').style.display = 'block';
+                }
+            });
         }
 
         let html5QrcodeScanner;
@@ -70,7 +76,7 @@
         function onScanSuccess(decodedText) {
             if (!isScanning) return;
             isScanning = false;
-            html5QrcodeScanner.pause(); // Freeze the camera
+            html5QrcodeScanner.pause(); 
             
             const resultDiv = document.getElementById('result');
             const nextBtn = document.getElementById('next-btn');
@@ -80,15 +86,15 @@
             resultDiv.className = "";
             nextBtn.style.display = 'none';
 
-            fetch(`/api/scan/${encodeURIComponent(decodedText)}`)
+            // SECURE FETCH REQUEST
+            fetch(`/api/scan/${encodeURIComponent(decodedText)}`, { headers: { 'X-Admin-Token': sessionToken } })
                 .then(r => r.json())
                 .then(data => {
                     resultDiv.className = data.status;
                     
-                    if (data.status === "error") {
-                        resultDiv.innerHTML = `<h2>Invalid Ticket!</h2><p>This QR code does not exist in the database.</p>`;
+                    if (data.status === "error" || !data.name) {
+                        resultDiv.innerHTML = `<h2>Invalid Ticket!</h2><p>This QR code does not exist in the database or access is denied.</p>`;
                     } else {
-                        // Build the details card
                         resultDiv.innerHTML = `
                             <h2>${data.message}</h2>
                             <div class="detail-row">
@@ -109,7 +115,6 @@
                             </div>
                         `;
                     }
-                    // Show the big "Scan Next Ticket" button
                     nextBtn.style.display = 'inline-block';
                 }).catch(err => {
                     resultDiv.className = "error"; 
@@ -119,7 +124,6 @@
         }
 
         function scanNext() {
-            // Hide the details and button, resume camera
             document.getElementById('result').style.display = 'none';
             document.getElementById('next-btn').style.display = 'none';
             isScanning = true;
