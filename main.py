@@ -31,9 +31,9 @@ events_collection = db["events"]
 tickets_collection = db["tickets"]
 
 # --- BRANDING ASSETS ---
-BACKGROUND_PATH = "ticket_bg.png"
-SPONSOR_LEFT_PATH = "sponsor_left.png"   # Replaces ABC Brand
-SPONSOR_RIGHT_PATH = "sponsor_right.png" # Replaces XYZ Brand
+BACKGROUND_PATH = "ticket_bg.jpeg"
+SPONSOR_LEFT_PATH = "sponsor_left.jpeg"   # Replaces ABC Brand
+SPONSOR_RIGHT_PATH = "sponsor_right.jpeg" # Replaces XYZ Brand
 
 IST = timezone(timedelta(hours=5, minutes=30))
 def get_ist_now(): return datetime.now(IST)
