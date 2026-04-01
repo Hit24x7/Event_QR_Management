@@ -10,17 +10,18 @@ from fastapi.staticfiles import StaticFiles
 from pymongo import MongoClient
 from PIL import Image
 
+# ReportLab Imports
 from reportlab.lib import colors
-from reportlab.lib.pagesizes import landscape
 from reportlab.pdfgen import canvas
-from reportlab.lib.units import mm
-from reportlab.pdfbase.pdfmetrics import stringWidth
-from reportlab.platypus import Paragraph, Spacer, Table, TableStyle, Image as RLImage, Frame, KeepInFrame
-from reportlab.lib.styles import ParagraphStyle, getSampleStyleSheet
+from reportlab.lib.utils import ImageReader
+from reportlab.pdfbase import pdfmetrics
+from reportlab.pdfbase.ttfonts import TTFont
 
 app = FastAPI()
 
-# --- CONFIGURATION & SECURITY ---
+# ==========================================
+# 1. CONFIGURATION & SECURITY
+# ==========================================
 MONGO_URI = os.getenv("MONGO_URI", "your_mongodb_uri_here")
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "1234")     
 SCANNER_TOKEN = os.getenv("SCANNER_TOKEN", "0000") 
@@ -29,11 +30,6 @@ client = MongoClient(MONGO_URI)
 db = client["event_database"]
 events_collection = db["events"]
 tickets_collection = db["tickets"]
-
-# --- BRANDING ASSETS ---
-BACKGROUND_PATH = "ticket_bg.jpeg"
-SPONSOR_LEFT_PATH = "sponsor_left.jpeg"   # Replaces ABC Brand
-SPONSOR_RIGHT_PATH = "sponsor_right.jpeg" # Replaces XYZ Brand
 
 IST = timezone(timedelta(hours=5, minutes=30))
 def get_ist_now(): return datetime.now(IST)
@@ -47,119 +43,162 @@ def verify_scanner(x_token: str = Header(None)):
     if x_token not in [ADMIN_TOKEN, SCANNER_TOKEN]:
         raise HTTPException(status_code=401, detail="Unauthorized Scanner Access!")
 
-# --- PREMIUM PDF GENERATION ENGINE ---
-def _fit_title_font(event_text, max_width, base_size=36, min_size=16, font_name="Times-BoldItalic"):
-    size = base_size
-    while size >= min_size:
-        if stringWidth(event_text, font_name, size) <= max_width: return size
-        size -= 2
-    return min_size
 
-def generate_qr_for_id(ticket_id):
-    qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=15, border=2)
-    qr.add_data(ticket_id) 
-    qr.make(fit=True)
-    return qr.make_image(fill_color="black", back_color="white").convert("RGB")
+# ==========================================
+# 2. BRANDING ASSETS & FONT REGISTRATION
+# ==========================================
+BACKGROUND_PATH = "ticket_bg.jpeg"  
+SPONSOR_CENTER_PATH = "sponsor_left.jpeg" 
+SPONSOR_RIGHT_PATH = "sponsor_right.jpeg"
+FONT_PATH = "event_font.ttf"  
+CUSTOM_FONT_NAME = "CustomEventFont"
 
-def _pil_to_rlimage(pil_img, max_w=None, max_h=None):
-    buf = io.BytesIO()
-    pil_img.save(buf, format="PNG")
-    buf.seek(0)
-    img = RLImage(buf)
-    if max_w or max_h: img._restrictSize(max_w or 1e9, max_h or 1e9)
-    return img
+# Register Font Globally on Startup
+if os.path.exists(FONT_PATH):
+    try:
+        pdfmetrics.registerFont(TTFont(CUSTOM_FONT_NAME, FONT_PATH))
+        print("✅ Custom Font Loaded Successfully!")
+    except Exception as e:
+        print(f"⚠️ Font registration error: {e}")
+        CUSTOM_FONT_NAME = "Helvetica-Bold"
+else:
+    CUSTOM_FONT_NAME = "Helvetica-Bold" 
 
-def create_ticket_pdf_buffer(event, name, date, venue, tickets, ticket_id):
+
+# ==========================================
+# 3. PREMIUM PDF GENERATION ENGINE
+# ==========================================
+def create_ticket_pdf_buffer(event_name, attendee_name, date, venue, tickets, ticket_id):
     buffer = io.BytesIO()
     
-    # Dimensions matched to the aspect ratio of the provided template
-    PAGE_W, PAGE_H = 850, 360
+    PAGE_W = 850
+    PAGE_H = 360
     c = canvas.Canvas(buffer, pagesize=(PAGE_W, PAGE_H))
 
-    # 1. DRAW THE BACKGROUND TEMPLATE
+    # --- A. DRAW BACKGROUND ---
     if os.path.exists(BACKGROUND_PATH):
         c.drawImage(BACKGROUND_PATH, 0, 0, width=PAGE_W, height=PAGE_H, preserveAspectRatio=False)
     else:
-        # Fallback dark background if image is missing
-        c.setFillColor(colors.HexColor("#3a0a10"))
+        c.setFillColor(colors.darkred)
         c.rect(0, 0, PAGE_W, PAGE_H, fill=1, stroke=0)
 
-    # 2. EVENT TITLE (Center-aligned in the left section)
-    left_section_center = 330
-    title_size = _fit_title_font(event, max_width=500, base_size=42, min_size=20, font_name="Times-BoldItalic")
-    c.setFont("Times-BoldItalic", title_size)
-    c.setFillColor(colors.HexColor("#FFD700")) # Gold color
-    # Add a slight drop shadow effect for readability
-    c.drawString(left_section_center - (stringWidth(event, "Times-BoldItalic", title_size)/2) + 2, 228, event)
+    # --- B. CENTERED STACK & EVENT NAME SHADOW ---
+    main_center_x = 325 
+
+    if os.path.exists(SPONSOR_CENTER_PATH):
+        c.drawImage(SPONSOR_CENTER_PATH, main_center_x - 60, 275, width=120, height=45, mask="auto", preserveAspectRatio=True)
+
+    c.setFont("Helvetica-Bold", 10)
     c.setFillColor(colors.white)
-    c.drawString(left_section_center - (stringWidth(event, "Times-BoldItalic", title_size)/2), 230, event)
+    c.drawCentredString(main_center_x, 260, "PRESENTS") 
 
-    # 3. SPONSOR LOGOS
-    # Top Left Sponsor
-    if os.path.exists(SPONSOR_LEFT_PATH):
-        left_logo = RLImage(SPONSOR_LEFT_PATH)
-        left_logo._restrictSize(120, 50)
-        lw, lh = left_logo.wrap(0,0)
-        c.drawImage(SPONSOR_LEFT_PATH, 40, PAGE_H - lh - 30, width=lw, height=lh, mask="auto")
-    
-    # Top Right Sponsor
-    if os.path.exists(SPONSOR_RIGHT_PATH):
-        right_logo = RLImage(SPONSOR_RIGHT_PATH)
-        right_logo._restrictSize(140, 50)
-        rw, rh = right_logo.wrap(0,0)
-        # Center it perfectly in the right perforated section
-        c.drawImage(SPONSOR_RIGHT_PATH, 715 - (rw/2), PAGE_H - rh - 40, width=rw, height=rh, mask="auto")
+    # Event Name with Drop Shadow
+    c.setFont(CUSTOM_FONT_NAME, 50)
+    # Shadow (Black, offset by +2x, -2y)
+    c.setFillColor(colors.black)
+    c.drawCentredString(main_center_x + 2, 200 - 2, event_name)
+    # Main Text (Gold)
+    c.setFillColor(colors.HexColor("#FFD700"))
+    c.drawCentredString(main_center_x, 200, event_name)
 
-    # 4. ATTENDEE DETAILS TABLE (Bottom Left)
-    styles = getSampleStyleSheet()
-    # Style for Labels (White)
-    lbl_style = ParagraphStyle("lbl", fontName="Helvetica-Bold", fontSize=14, textColor=colors.white)
-    # Style for Values (Gold/Yellow)
-    val_style = ParagraphStyle("val", fontName="Helvetica-Bold", fontSize=14, textColor=colors.HexColor("#FFD700"))
-    
-    # Adding a subtle visual separator '|' just like the design
-    data = [
-        [Paragraph("Attendee:", lbl_style), Paragraph("|", lbl_style), Paragraph(name, val_style)],
-        [Paragraph("Tickets:", lbl_style), Paragraph("|", lbl_style), Paragraph(f"{tickets} Tickets", val_style)],
-        [Paragraph("Venue:", lbl_style), Paragraph("|", lbl_style), Paragraph(venue, val_style)],
-        [Paragraph("Date:", lbl_style), Paragraph("|", lbl_style), Paragraph(date, val_style)]
-    ]
-    
-    t = Table(data, colWidths=[90, 15, 400], rowHeights=25)
-    t.setStyle(TableStyle([
-        ('VALIGN', (0,0), (-1,-1), 'MIDDLE'),
-        ('LEFTPADDING', (0,0), (-1,-1), 0),
-        ('BOTTOMPADDING', (0,0), (-1,-1), 0),
-    ]))
-    
-    t.wrapOn(c, 500, 200)
-    t.drawOn(c, 50, 50) # Bottom left placement
-
-    # 5. QR CODE (Right Section)
-    qr_size = 135
-    qr_x = 715 - (qr_size/2) # Center horizontally in right section
-    qr_y = 90
-    
-    # Draw a crisp white rounded box behind the QR code so scanners can easily read it
-    c.setFillColor(colors.white)
-    c.roundRect(qr_x - 5, qr_y - 5, qr_size + 10, qr_size + 10, radius=8, fill=1, stroke=0)
-    
-    qr_img_pil = generate_qr_for_id(ticket_id)
-    qr_img_flow = _pil_to_rlimage(qr_img_pil, max_w=qr_size, max_h=qr_size)
-    qr_img_flow.drawOn(c, qr_x, qr_y)
-
-    # 6. TICKET ID (Small text under QR for manual lookup)
+    # --- C. RIGHT SPONSOR ---
+    right_center_x = 745 
     c.setFont("Helvetica-Bold", 8)
     c.setFillColor(colors.white)
-    c.drawCentredString(715, qr_y - 18, f"ID: {ticket_id}")
+    c.drawCentredString(right_center_x - 10, 320, "IN ASSOCIATION WITH")
 
+    if os.path.exists(SPONSOR_RIGHT_PATH):
+        c.drawImage(SPONSOR_RIGHT_PATH, right_center_x - 60, 270, width=100, height=40, mask="auto", preserveAspectRatio=True)
+
+    # --- D. SEMI-TRANSPARENT DETAILS BOX ---
+    c.saveState() 
+    c.setFillColor(colors.HexColor("#2b0000"))
+    c.setFillAlpha(0.50)
+    c.rect(50, 25, 590, 135, fill=1, stroke=0)
+    c.restoreState() 
+
+    # --- E. DRAW ATTENDEE DETAILS ---
+    start_y = 135  
+    row_spacing = 28 
+
+    label_x = 55      
+    separator_x = 135 
+    value_x = 150     
+
+    tickets_count = f"{tickets} Tickets" # Format dynamic ticket integer
+
+    details = [
+        ("Attendee:", attendee_name, "white", False),
+        ("Tickets:", tickets_count, "gold", True),
+        ("Venue:", venue, "white", True),
+        ("Date:", date, "gold", True)
+    ]
+
+    for i, (label, value, color_theme, use_sep) in enumerate(details):
+        current_y = start_y - (i * row_spacing)
+        
+        # 1. Label
+        c.setFont("Helvetica-Bold", 14)
+        c.setFillColor(colors.white)
+        c.drawString(label_x, current_y, label)
+        
+        # 2. Separator
+        if use_sep:
+            if i % 2 == 0:
+                c.setFillColor(colors.HexColor("#FFD700"))
+            else:
+                c.setFillColor(colors.white)
+            c.drawString(separator_x, current_y, "|")
+        
+        # 3. Determine Color
+        val_color = colors.HexColor("#FFD700") if color_theme == "gold" else colors.white
+        
+        # 4. Value Shadow
+        c.setFillColor(colors.black)
+        c.drawString(value_x + 1, current_y - 1, str(value))
+        
+        # 5. Value Main Text
+        c.setFillColor(val_color)
+        c.drawString(value_x, current_y, str(value))
+        
+        # 6. Horizontal Gold Line (Except last row)
+        if i < len(details) - 1:
+            c.setStrokeColor(colors.HexColor("#FFD700"))
+            c.setLineWidth(0.5)
+            c.line(label_x, current_y - 8, value_x + 280, current_y - 8)
+
+    # --- F. DRAW QR CODE & ID ---
+    qr = qrcode.QRCode(version=None, error_correction=qrcode.constants.ERROR_CORRECT_H, box_size=10, border=1)
+    qr.add_data(ticket_id)
+    qr.make(fit=True)
+    qr_pil = qr.make_image(fill_color="black", back_color="white").convert("RGB")
+
+    buf_img = io.BytesIO()
+    qr_pil.save(buf_img, format="PNG")
+    buf_img.seek(0)
+    qr_img_rl = ImageReader(buf_img)
+
+    qr_size = 135
+    qr_x = 672   
+    qr_y = 100   
+
+    c.setFillColor(colors.white)
+    c.roundRect(qr_x - 5, qr_y - 5, qr_size + 10, qr_size + 10, radius=8, fill=1, stroke=0)
+    c.drawImage(qr_img_rl, qr_x, qr_y, width=qr_size, height=qr_size)
+
+    c.setFont("Helvetica-Bold", 10)
+    c.setFillColor(colors.white)
+    c.drawCentredString(right_center_x, qr_y - 25, f"ID: {ticket_id}")
+
+    # --- G. SAVE BUFFER ---
     c.showPage()
     c.save()
     buffer.seek(0)
     return buffer
 
+
 # ========================================================
-# SECURE API ENDPOINTS
+# 4. SECURE API ENDPOINTS
 # ========================================================
 
 @app.post("/api/events", dependencies=[Depends(verify_admin)])
@@ -185,6 +224,7 @@ def generate_ticket(event_id: str = Form(...), name: str = Form(...), email: str
         "tickets_count": tickets, "is_scanned": False, "scanned_at": None, "created_at": get_ist_now()
     })
     
+    # Passes database variables directly into your custom drawing function!
     pdf_buffer = create_ticket_pdf_buffer(event["name"], name, event["date"], event["venue"], tickets, ticket_id)
     filename = f"Ticket_{name.replace(' ', '_')}.pdf"
     
