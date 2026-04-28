@@ -121,11 +121,17 @@
                     
                     const customerName = document.getElementById('nameInput').value;
                     const ticketQty = document.getElementById('ticketCount').value;
-                    const eventName = document.getElementById('eventDropdown').options[document.getElementById('eventDropdown').selectedIndex].text.split(' (')[0]; // Gets name without price
+                    const eventSelect = document.getElementById('eventDropdown');
+                    const eventName = eventSelect.options[eventSelect.selectedIndex].text.split(' (')[0];
                     
-                    const waMessage = `Hi! I just paid for ${ticketQty} tickets for ${eventName}. My name is ${customerName}. Here is my payment screenshot! (Order Ref: ${data.order_id})`;
+                    // NEW: A highly structured, official-looking WhatsApp message
+                    const waMessage = `*🚨 PAYMENT VERIFICATION 🚨*\n\nHi H&D Events! I have just made the payment. *Please find my screenshot attached.* 📎\n\n*📋 My Order Details:*\n• Name: ${customerName}\n• Tickets: ${ticketQty}\n• Event: ${eventName}\n• Order Ref: ${data.order_id}\n\n*(Reminder: I need to attach the screenshot before pressing send!)*`;
                     
-                    document.getElementById('wa-share-btn').href = `https://wa.me/${+918169630273}?text=${encodeURIComponent(waMessage)}`;
+                    document.getElementById('wa-share-btn').href = `https://wa.me/${BUSINESS_WA_NUMBER}?text=${encodeURIComponent(waMessage)}`;
+                    
+                    // Change the button text to be more commanding
+                    document.getElementById('wa-share-btn').innerText = "📎 Attach Screenshot & Send to WhatsApp";
+
                 } else {
                     alert("Error saving details. Please try again.");
                     btn.innerText = "Proceed to Payment"; btn.disabled = false;
