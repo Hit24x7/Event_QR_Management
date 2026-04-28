@@ -76,6 +76,12 @@
             </div>
             
             <button class="secondary" onclick="loadEventStats()" style="margin-top: 15px;">🔄 Refresh Dashboard</button>
+	    <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
+            <h3 style="font-size: 1em; color: #1F4F82;">🏷️ Quick Price Change</h3>
+            <div style="display: flex; gap: 10px;">
+                <input type="number" id="quickPriceInput" placeholder="New Price (₹)" style="margin-bottom: 0;">
+                <button onclick="updatePrice()" style="background: #FFD700; color: #1F4F82; width: auto; padding: 10px 20px;">Update</button>
+            </div>
             <button id="exportBtn" style="display:none; background:#28a745; margin-top:10px;">📥 Download Guest List (CSV)</button>
         </div>
 
@@ -190,6 +196,40 @@
                 a.style.display = 'none'; a.href = url; a.download = `GuestList.csv`;
                 document.body.appendChild(a); a.click(); window.URL.revokeObjectURL(url);
             });
+        }
+
+	function updatePrice() {
+            const eventId = document.getElementById('filterDropdown').value;
+            const newPrice = document.getElementById('quickPriceInput').value;
+
+            if (eventId === "ALL") {
+                alert("Please select a specific event from the dropdown to change its price.");
+                return;
+            }
+            if (!newPrice || newPrice <= 0) {
+                alert("Please enter a valid price.");
+                return;
+            }
+
+            const formData = new FormData();
+            formData.append("event_id", eventId);
+            formData.append("new_price", newPrice);
+
+            fetch('/api/events/update_price', { 
+                method: 'POST', 
+                body: formData, 
+                headers: getAuthHeaders() 
+            })
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === "success") {
+                    alert(data.message);
+                    document.getElementById('quickPriceInput').value = ""; // clear the box
+                    loadInitialData(); // Refresh the dropdowns
+                } else {
+                    alert("Error: " + data.message);
+                }
+            }).catch(e => alert("Network error connecting to server."));
         }
 
         document.getElementById('eventForm').onsubmit = function(e) {
