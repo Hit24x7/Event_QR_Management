@@ -71,8 +71,33 @@ else:
 # 3. PREMIUM PDF GENERATION ENGINE
 # ==========================================
 def create_ticket_pdf_buffer(event_name, attendee_name, date, start_time, end_time, venue, tickets, ticket_id):
-    buffer = io.BytesIO()
     
+    # --- NEW: DATE FORMATTING (Converts "2026-04-18" to "18 Apr'2026") ---
+    try:
+        parsed_date = datetime.strptime(date, "%Y-%m-%d")
+        display_date = parsed_date.strftime("%d %b'%Y")
+    except ValueError:
+        display_date = date # Fallback if already formatted
+
+    # --- NEW: TIME FORMATTING (Adds "next day" logic) ---
+    try:
+        t_start = datetime.strptime(start_time, "%H:%M")
+        t_end = datetime.strptime(end_time, "%H:%M")
+        
+        # Convert 24h to 12h format (e.g., "11:30 pm", "5:00 am")
+        start_f = t_start.strftime("%I:%M %p").lstrip("0").lower()
+        end_f = t_end.strftime("%I:%M %p").lstrip("0").lower()
+        
+        # If the end time is numerically smaller than start time, it crossed midnight
+        if t_end < t_start:
+            time_str = f"{start_f} to {end_f} next day"
+        else:
+            time_str = f"{start_f} to {end_f}"
+    except ValueError:
+        time_str = f"{start_time} to {end_time}" # Fallback
+
+
+    buffer = io.BytesIO()
     PAGE_W = 850
     PAGE_H = 360
     c = canvas.Canvas(buffer, pagesize=(PAGE_W, PAGE_H))
@@ -105,7 +130,6 @@ def create_ticket_pdf_buffer(event_name, attendee_name, date, start_time, end_ti
     if os.path.exists(SPONSOR_RIGHT_PATH):
         c.drawImage(SPONSOR_RIGHT_PATH, right_center_x - 60, 270, width=100, height=40, mask="auto", preserveAspectRatio=True)
 
-    # Made the box slightly taller to fit the 5th Time Row
     c.saveState() 
     c.setFillColor(colors.HexColor("#2b0000"))
     c.setFillAlpha(0.50)
@@ -119,14 +143,13 @@ def create_ticket_pdf_buffer(event_name, attendee_name, date, start_time, end_ti
     value_x = 150     
 
     tickets_count = f"{tickets} Tickets"
-    time_str = f"{start_time} to {end_time}"
 
     details = [
         ("Attendee:", attendee_name, "white", False),
         ("Tickets:", tickets_count, "gold", True),
         ("Venue:", venue, "white", True),
-        ("Date:", date, "gold", True),
-        ("Time:", time_str, "white", True)
+        ("Date:", display_date, "gold", True), # Now uses your dynamically formatted date
+        ("Time:", time_str, "white", True)     # Now uses your dynamically formatted time
     ]
 
     for i, (label, value, color_theme, use_sep) in enumerate(details):
@@ -178,7 +201,6 @@ def create_ticket_pdf_buffer(event_name, attendee_name, date, start_time, end_ti
     c.save()
     buffer.seek(0)
     return buffer
-
 
 # ========================================================
 # 4. PUBLIC CHECKOUT ENDPOINTS
