@@ -54,8 +54,8 @@ def verify_scanner(x_token: str = Header(None)):
 # 2. BRANDING ASSETS & FONT REGISTRATION
 # ==========================================
 BACKGROUND_PATH = "ticket_bg.jpeg"  
-SPONSOR_CENTER_PATH = "sponsor_left.jpeg" 
-SPONSOR_RIGHT_PATH = "sponsor_right.jpeg"
+SPONSOR_CENTER_PATH = "sponsor_left.jpg" 
+SPONSOR_RIGHT_PATH = "sponsor_right.jpg"
 FONT_PATH = "event_font.ttf"  
 CUSTOM_FONT_NAME = "CustomEventFont"
 
