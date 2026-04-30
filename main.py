@@ -29,11 +29,15 @@ MONGO_URI = os.getenv("MONGO_URI", "your_mongodb_uri_here")
 ADMIN_TOKEN = os.getenv("ADMIN_TOKEN", "1234")     
 SCANNER_TOKEN = os.getenv("SCANNER_TOKEN", "0000") 
 
+# --- YOUR TWO WHATSAPP NUMBERS (Must include country code 91) ---
+WA_NUMBER_1 = "919653193636" 
+WA_NUMBER_2 = "918169630273"
+
 client = MongoClient(MONGO_URI)
 db = client["event_database"]
 events_collection = db["events"]
 tickets_collection = db["tickets"]
-pending_leads = db["pending_leads"] # NEW: Stores unpaid web checkouts
+pending_leads = db["pending_leads"] 
 
 IST = timezone(timedelta(hours=5, minutes=30))
 def get_ist_now(): return datetime.now(IST)
@@ -50,8 +54,8 @@ def verify_scanner(x_token: str = Header(None)):
 # 2. BRANDING ASSETS & FONT REGISTRATION
 # ==========================================
 BACKGROUND_PATH = "ticket_bg.jpeg"  
-SPONSOR_CENTER_PATH = "sponsor_left.jpg" 
-SPONSOR_RIGHT_PATH = "sponsor_right.jpg"
+SPONSOR_CENTER_PATH = "sponsor_left.jpeg" 
+SPONSOR_RIGHT_PATH = "sponsor_right.jpeg"
 FONT_PATH = "event_font.ttf"  
 CUSTOM_FONT_NAME = "CustomEventFont"
 
@@ -66,7 +70,7 @@ else:
 # ==========================================
 # 3. PREMIUM PDF GENERATION ENGINE
 # ==========================================
-def create_ticket_pdf_buffer(event_name, attendee_name, date, venue, tickets, ticket_id):
+def create_ticket_pdf_buffer(event_name, attendee_name, date, start_time, end_time, venue, tickets, ticket_id):
     buffer = io.BytesIO()
     
     PAGE_W = 850
@@ -101,25 +105,28 @@ def create_ticket_pdf_buffer(event_name, attendee_name, date, venue, tickets, ti
     if os.path.exists(SPONSOR_RIGHT_PATH):
         c.drawImage(SPONSOR_RIGHT_PATH, right_center_x - 60, 270, width=100, height=40, mask="auto", preserveAspectRatio=True)
 
+    # Made the box slightly taller to fit the 5th Time Row
     c.saveState() 
     c.setFillColor(colors.HexColor("#2b0000"))
     c.setFillAlpha(0.50)
-    c.rect(50, 25, 590, 135, fill=1, stroke=0)
+    c.rect(50, 10, 590, 155, fill=1, stroke=0)
     c.restoreState() 
 
-    start_y = 135  
+    start_y = 145  
     row_spacing = 28 
     label_x = 55      
     separator_x = 135 
     value_x = 150     
 
     tickets_count = f"{tickets} Tickets"
+    time_str = f"{start_time} to {end_time}"
 
     details = [
         ("Attendee:", attendee_name, "white", False),
         ("Tickets:", tickets_count, "gold", True),
         ("Venue:", venue, "white", True),
-        ("Date:", date, "gold", True)
+        ("Date:", date, "gold", True),
+        ("Time:", time_str, "white", True)
     ]
 
     for i, (label, value, color_theme, use_sep) in enumerate(details):
@@ -176,56 +183,44 @@ def create_ticket_pdf_buffer(event_name, attendee_name, date, venue, tickets, ti
 # ========================================================
 # 4. PUBLIC CHECKOUT ENDPOINTS
 # ========================================================
-
 @app.get("/api/public/events")
 def get_public_events():
     events = list(events_collection.find().sort("created_at", -1))
-    return [{"id": e["_id"], "name": e["name"], "date": e["date"], "venue": e["venue"], "price": e.get("price", 500)} for e in events]
+    return [{"id": e["_id"], "name": e["name"], "date": e["date"], "start_time": e.get("start_time", ""), "end_time": e.get("end_time", ""), "venue": e["venue"], "price": e.get("price", 500)} for e in events]
 
 @app.post("/api/public/submit-lead")
 def submit_lead(
-    event_id: str = Form(...),
-    name: str = Form(..., min_length=2),
-    email: str = Form(..., pattern=r"^[\w\.-]+@[\w\.-]+\.\w+$"),
-    phone: str = Form(..., min_length=10),
-    tickets: int = Form(..., gt=0),
-    total_amount: int = Form(...)
+    event_id: str = Form(...), name: str = Form(..., min_length=2), email: str = Form(...),
+    phone: str = Form(..., min_length=10), tickets: int = Form(..., gt=0), total_amount: int = Form(...)
 ):
     event = events_collection.find_one({"_id": event_id})
     if not event: raise HTTPException(status_code=404, detail="Event not found")
 
     order_id = f"ORD-{uuid.uuid4().hex[:6].upper()}"
-    
-    # Save the order so you can verify it in your database later
     pending_leads.insert_one({
         "_id": order_id, "event_id": event_id, "event_name": event["name"], "name": name,
         "email": email, "phone": phone, "tickets_requested": tickets, "total_amount": total_amount,
         "status": "awaiting_screenshot", "created_at": get_ist_now()
     })
-    
     return {"status": "success", "order_id": order_id}
-
 
 # ========================================================
 # 5. SECURE ADMIN & SCANNER ENDPOINTS
 # ========================================================
-
 @app.post("/api/events", dependencies=[Depends(verify_admin)])
-def create_event(name: str = Form(...), date: str = Form(...), venue: str = Form(...), price: str = Form(...)):
+def create_event(name: str = Form(...), date: str = Form(...), start_time: str = Form(...), end_time: str = Form(...), venue: str = Form(...), price: str = Form(...)):
     event_id = f"EVT-{uuid.uuid4().hex[:6].upper()}"
-    events_collection.insert_one({"_id": event_id, "name": name, "date": date, "venue": venue, "price": int(price), "created_at": get_ist_now()})
+    events_collection.insert_one({
+        "_id": event_id, "name": name, "date": date, "start_time": start_time, "end_time": end_time, 
+        "venue": venue, "price": int(price), "created_at": get_ist_now()
+    })
     return {"status": "success", "event_id": event_id}
 
-# Add this right below your create_event endpoint!
 @app.post("/api/events/update_price", dependencies=[Depends(verify_admin)])
 def update_event_price(event_id: str = Form(...), new_price: int = Form(...)):
-    result = events_collection.update_one(
-        {"_id": event_id},
-        {"$set": {"price": new_price}}
-    )
-    if result.modified_count == 0:
-        return {"status": "error", "message": "Event not found or price unchanged."}
-    return {"status": "success", "message": f"Price successfully updated to ₹{new_price}"}
+    result = events_collection.update_one({"_id": event_id}, {"$set": {"price": new_price}})
+    if result.modified_count == 0: return {"status": "error", "message": "Event not found or price unchanged."}
+    return {"status": "success", "message": f"Price updated to ₹{new_price}"}
 
 @app.get("/api/events", dependencies=[Depends(verify_scanner)])
 def get_events():
@@ -238,13 +233,15 @@ def generate_ticket(event_id: str = Form(...), name: str = Form(...), email: str
     if not event: raise HTTPException(status_code=404, detail="Event not found")
 
     ticket_id = f"TICKET-{uuid.uuid4().hex[:8].upper()}"
-    
     tickets_collection.insert_one({
         "_id": ticket_id, "event_id": event_id, "attendee_name": name, "attendee_email": email, "attendee_phone": phone,
         "tickets_count": tickets, "is_scanned": False, "scanned_at": None, "created_at": get_ist_now()
     })
     
-    pdf_buffer = create_ticket_pdf_buffer(event["name"], name, event["date"], event["venue"], tickets, ticket_id)
+    start_time = event.get("start_time", "N/A")
+    end_time = event.get("end_time", "N/A")
+    
+    pdf_buffer = create_ticket_pdf_buffer(event["name"], name, event["date"], start_time, end_time, event["venue"], tickets, ticket_id)
     filename = f"Ticket_{name.replace(' ', '_')}.pdf"
     
     pdf_buffer.seek(0)
@@ -266,27 +263,6 @@ def scan_ticket(ticket_id: str):
     tickets_collection.update_one({"_id": ticket_id}, {"$set": {"is_scanned": True, "scanned_at": timestamp}})
     return {"status": "success", "message": "ENTRY GRANTED", "name": ticket['attendee_name'], "event": event_name, "tickets_count": ticket['tickets_count'], "scanned_time": timestamp}
 
-@app.get("/api/export/{event_id}", dependencies=[Depends(verify_admin)])
-def export_guests(event_id: str):
-    event = events_collection.find_one({"_id": event_id})
-    if not event: raise HTTPException(status_code=404, detail="Event not found")
-
-    tickets = tickets_collection.find({"event_id": event_id}).sort("created_at", 1)
-
-    buffer = io.StringIO()
-    writer = csv.writer(buffer)
-    writer.writerow(["Ticket ID", "Attendee Name", "Email", "Phone", "Tickets Bought", "Has Scanned In?", "Scan Time"])
-
-    for t in tickets:
-        writer.writerow([
-            t["_id"], t.get("attendee_name", ""), t.get("attendee_email", ""), 
-            t.get("attendee_phone", ""), t.get("tickets_count", ""), 
-            "Yes" if t.get("is_scanned") else "No", t.get("scanned_at", "")
-        ])
-
-    buffer.seek(0)
-    return StreamingResponse(buffer, media_type="text/csv", headers={"Content-Disposition": f"attachment; filename=GuestList_{event['name']}.csv"})
-
 @app.get("/api/dashboard/global", dependencies=[Depends(verify_admin)])
 def get_global_stats():
     total_events = events_collection.count_documents({})
@@ -305,19 +281,25 @@ def get_event_stats(event_id: str):
     recent = list(tickets_collection.find({"event_id": event_id, "is_scanned": True}, {"_id": 0, "attendee_name": 1, "tickets_count": 1, "scanned_at": 1}).sort("scanned_at", -1).limit(5))
     return {"expected": expected, "arrived": arrived, "recent": recent}
 
-
 # ========================================================
-# 6. WHATSAPP WEBHOOK
+# 6. WHATSAPP WEBHOOK (SMART ROUTING)
 # ========================================================
-
 @app.post("/api/whatsapp")
 async def whatsapp_bot(request: Request):
-    response = MessagingResponse()
+    form_data = await request.form()
     
+    # Check WHICH of your two numbers received the message
+    to_number = form_data.get("To", "").replace("whatsapp:", "").replace("+", "")
+    
+    # Assign agent ID (1 or 2) based on the receiving number
+    agent_id = "2" if to_number == WA_NUMBER_2 else "1"
+    
+    # Pass the agent parameter directly into the checkout link
     # ⚠️ CHANGE THIS TO YOUR ACTUAL RENDER LINK ⚠️
-    CHECKOUT_URL = "https://event-qr-management.onrender.com/checkout.html"
+    CHECKOUT_URL = f"https://event-qr-management.onrender.com/checkout.html?agent={agent_id}"
     
-    msg = f"Welcome to Summer Garba Nights Events! 🎟️\n\nTo book your tickets quickly and securely, please click the link below to fill out your details and complete your payment:\n\n👉 {CHECKOUT_URL}\n\nOnce you have paid, just reply to this chat with your payment screenshot!"
+    response = MessagingResponse()
+    msg = f"Welcome to H&D Events! 🎟️\n\nTo book your tickets securely, please click the link below to select your passes and complete your payment:\n👉 {CHECKOUT_URL}\n\nOnce you have paid, just reply to this chat with your payment screenshot!"
     
     response.message(msg)
     return Response(content=str(response), media_type="application/xml")

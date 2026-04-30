@@ -7,18 +7,13 @@
         body { font-family: Arial, sans-serif; background: #f4f4f9; padding: 20px; color: #333;}
         .checkout-box { background: white; padding: 30px; border-radius: 12px; box-shadow: 0 4px 10px rgba(0,0,0,0.1); max-width: 450px; margin: 0 auto; border-top: 5px solid #1F4F82;}
         h2 { color: #1F4F82; text-align: center; margin-top: 0; }
-        
         .form-group { margin-bottom: 15px; }
         label { font-weight: bold; font-size: 0.9em; color: #555; display: block; margin-bottom: 5px;}
         input, select { width: 100%; padding: 12px; border: 1px solid #ccc; border-radius: 4px; box-sizing: border-box; font-size: 1em;}
-        
         .price-summary { background: #e9ecef; padding: 15px; border-radius: 8px; margin-bottom: 20px; text-align: center; font-size: 1.2em;}
         .total-highlight { color: #28a745; font-weight: bold; font-size: 1.4em; }
-        
         button { width: 100%; padding: 15px; background: #1F4F82; color: white; border: none; border-radius: 8px; font-size: 1.2em; font-weight: bold; cursor: pointer;}
         button:disabled { background: #ccc; }
-        
-        /* Payment Screen */
         #payment-step { display: none; text-align: center; }
         #qr-image { width: 80%; max-width: 250px; border: 4px solid #1F4F82; border-radius: 12px; margin: 15px 0; }
         .wa-btn { background: #25D366; display: block; text-decoration: none; padding: 15px; border-radius: 8px; color: white; font-weight: bold; font-size: 1.1em; margin-top: 15px; width: 100%; box-sizing: border-box;}
@@ -27,7 +22,6 @@
 <body>
 
     <div class="checkout-box">
-        
         <div id="form-step">
             <h2>🎟️ Book Your Ticket</h2>
             <form id="customerForm">
@@ -43,17 +37,16 @@
                 </div>
                 <div class="form-group">
                     <label>Email Address</label>
-                    <input type="email" name="email" placeholder="" required>
+                    <input type="email" name="email" id="emailInput" placeholder="" required>
                 </div>
                 <div class="form-group">
-                    <label>WhatsApp Number</label>
-                    <input type="tel" name="phone" placeholder="" required minlength="10">
+                    <label>Mobile Number</label>
+                    <input type="tel" name="phone" id="phoneInput" placeholder="" required minlength="10">
                 </div>
                 <div class="form-group">
                     <label>Number of Tickets</label>
                     <input type="number" name="tickets" id="ticketCount" value="1" min="1" max="10" required onchange="calculateTotal()" onkeyup="calculateTotal()">
                 </div>
-
                 <div class="price-summary">
                     Total Amount Due: <br>
                     <span class="total-highlight">₹<span id="displayTotal">0</span></span>
@@ -65,20 +58,32 @@
 
         <div id="payment-step">
             <h2>💳 Complete Payment</h2>
-            <p>Please scan the QR code below using any UPI app to pay <strong style="font-size: 1.2em; color:#28a745;">₹<span id="finalPayAmount"></span></strong></p>
+            <p>Please scan the QR code below to pay <strong style="font-size: 1.2em; color:#28a745;">₹<span id="finalPayAmount"></span></strong></p>
             
-            <img src="/static_qr.jpg" id="qr-image" alt="UPI QR Code">
+            <img src="static_qr_1.jpeg" id="qr-image" alt="UPI QR Code">
             
-            <p style="font-size: 0.9em; color: #666;">Once paid, click the button below to share your screenshot with our team to get your PDF ticket!</p>
-            
-            <a href="#" id="wa-share-btn" class="wa-btn">💬 I Have Paid -> Send Screenshot</a>
+            <a href="#" id="wa-share-btn" class="wa-btn">Send details in WhatsApp</a>
         </div>
     </div>
 
     <script>
-        // ⚠️ CHANGE THIS TO YOUR ACTUAL WHATSAPP BUSINESS NUMBER (Include Country Code 91)
-        const BUSINESS_WA_NUMBER = "918169630273"; 
+        // --- MULTI-NUMBER SMART ROUTING ---
+        const urlParams = new URLSearchParams(window.location.search);
+        const agent = urlParams.get('agent') || "1"; // Defaults to agent 1 if no param is found
+
+        // ⚠️ CHANGE THESE TO YOUR ACTUAL TWO BUSINESS NUMBERS ⚠️
+        let BUSINESS_WA_NUMBER = "919653193636"; 
+        let QR_SRC = "static_qr_1.jpeg";
+
+        if (agent === "2") {
+            BUSINESS_WA_NUMBER = "918169630273";
+            QR_SRC = "static_qr_2.jpeg";
+        }
         
+        // Load the correct QR code for the specific agent!
+        document.getElementById('qr-image').src = QR_SRC;
+
+
         let eventsData = [];
 
         fetch('/api/public/events')
@@ -86,9 +91,16 @@
             .then(events => {
                 eventsData = events;
                 const dropdown = document.getElementById('eventDropdown');
-                dropdown.innerHTML = '<option value="" disabled selected>Select an Event...</option>';
+                
+                if (events.length === 0) {
+                    dropdown.innerHTML = '<option value="" disabled selected>No events available right now!</option>';
+                    return;
+                }
+
+                dropdown.innerHTML = '<option value="" disabled selected>-- Click here to Select an Event --</option>';
                 events.forEach(e => {
-                    dropdown.innerHTML += `<option value="${e.id}">${e.name} (₹${e.price}/ticket)</option>`;
+                    // Removed the price from the display text!
+                    dropdown.innerHTML += `<option value="${e.id}">${e.name}</option>`;
                 });
             });
 
@@ -96,17 +108,29 @@
             const eventId = document.getElementById('eventDropdown').value;
             const ticketCount = parseInt(document.getElementById('ticketCount').value) || 0;
             
-            if (eventId && ticketCount > 0) {
+            if (eventId && ticketCount > 0 && eventsData.length > 0) {
                 const selectedEvent = eventsData.find(e => e.id === eventId);
-                const total = selectedEvent.price * ticketCount;
-                document.getElementById('displayTotal').innerText = total;
-                document.getElementById('hiddenTotal').value = total;
-                document.getElementById('finalPayAmount').innerText = total;
+                if (selectedEvent) {
+                    const total = selectedEvent.price * ticketCount;
+                    document.getElementById('displayTotal').innerText = total;
+                    document.getElementById('hiddenTotal').value = total;
+                    document.getElementById('finalPayAmount').innerText = total;
+                }
+            } else {
+                document.getElementById('displayTotal').innerText = "0";
+                document.getElementById('hiddenTotal').value = "0";
+                document.getElementById('finalPayAmount').innerText = "0";
             }
         }
 
         document.getElementById('customerForm').onsubmit = function(e) {
             e.preventDefault();
+            
+            if(!document.getElementById('eventDropdown').value) {
+                alert("Please select an event first!");
+                return;
+            }
+
             const btn = document.getElementById('submitBtn');
             btn.innerText = "Securing Order..."; btn.disabled = true;
 
@@ -120,18 +144,19 @@
                     document.getElementById('payment-step').style.display = 'block';
                     
                     const customerName = document.getElementById('nameInput').value;
+                    const customerEmail = document.getElementById('emailInput').value;
+                    const customerPhone = document.getElementById('phoneInput').value;
                     const ticketQty = document.getElementById('ticketCount').value;
+                    
                     const eventSelect = document.getElementById('eventDropdown');
-                    const eventName = eventSelect.options[eventSelect.selectedIndex].text.split(' (')[0];
+                    const eventName = eventSelect.options[eventSelect.selectedIndex].text;
                     
-                    // NEW: A highly structured, official-looking WhatsApp message
-                    const waMessage = `*🚨 PAYMENT VERIFICATION 🚨*\n\nHi H&D Events! I have just made the payment. *Please find my screenshot attached.* 📎\n\n*📋 My Order Details:*\n• Name: ${customerName}\n• Tickets: ${ticketQty}\n• Event: ${eventName}\n• Order Ref: ${data.order_id}\n\n*(Reminder: I need to attach the screenshot before pressing send!)*`;
+                    // NEW: Highly detailed WhatsApp Payload
+                    const waMessage = `*🚨 PAYMENT VERIFICATION 🚨*\n\nHi H&D Events! I have just made the payment. Please find my screenshot attached. 📎\n\n*📋 My Order Details:*\n• Event: ${eventName}\n• Name: ${customerName}\n• Email: ${customerEmail}\n• Phone: ${customerPhone}\n• Tickets: ${ticketQty}\n• Order Ref: ${data.order_id}\n\n*(Reminder: I need to attach the screenshot before pressing send!)*`;
                     
-                    document.getElementById('wa-share-btn').href = `https://wa.me/${+918169630273}?text=${encodeURIComponent(waMessage)}`;
+                    // Redirects to whichever number originally sent them the link!
+                    document.getElementById('wa-share-btn').href = `https://wa.me/${BUSINESS_WA_NUMBER}?text=${encodeURIComponent(waMessage)}`;
                     
-                    // Change the button text to be more commanding
-                    document.getElementById('wa-share-btn').innerText = "📎 Attach Screenshot & Send to WhatsApp";
-
                 } else {
                     alert("Error saving details. Please try again.");
                     btn.innerText = "Proceed to Payment"; btn.disabled = false;

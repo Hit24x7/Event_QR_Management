@@ -42,14 +42,11 @@
     </div>
 
     <div id="app-content">
-        
         <div class="card" style="border-top-color: #FFD700;">
             <h2>📊 Analytics Dashboard</h2>
-            
             <select id="filterDropdown" onchange="loadEventStats()" style="background: #f4f4f9; font-weight: bold;">
                 <option value="ALL">Global Overview (All Events)</option>
             </select>
-
             <div class="kpi-container">
                 <div class="kpi-box" id="kpi-box-1">
                     <div class="kpi-num" id="stat-events">-</div>
@@ -64,29 +61,19 @@
                     <div class="kpi-label">Total Arrived</div>
                 </div>
             </div>
-
             <div style="font-size: 0.9em; font-weight: bold; color: #555;">Attendance Rate <span id="stat-percent" style="float:right;">0%</span></div>
             <div class="progress-container">
                 <div class="progress-bar" id="stat-bar"></div>
             </div>
-
             <div id="recent-scans-section" style="display: none; margin-top: 20px;">
                 <h3 style="font-size: 1em; color: #1F4F82; margin-bottom: 10px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">Latest Arrivals</h3>
                 <ul class="recent-list" id="recent-list"></ul>
             </div>
-            
             <button class="secondary" onclick="loadEventStats()" style="margin-top: 15px;">🔄 Refresh Dashboard</button>
-	    <hr style="border: 0; border-top: 1px solid #eee; margin: 20px 0;">
-            <h3 style="font-size: 1em; color: #1F4F82;">🏷️ Quick Price Change</h3>
-            <div style="display: flex; gap: 10px;">
-                <input type="number" id="quickPriceInput" placeholder="New Price (₹)" style="margin-bottom: 0;">
-                <button onclick="updatePrice()" style="background: #FFD700; color: #1F4F82; width: auto; padding: 10px 20px;">Update</button>
-            </div>
-            <button id="exportBtn" style="display:none; background:#28a745; margin-top:10px;">📥 Download Guest List (CSV)</button>
         </div>
 
         <div class="card">
-            <h2>🎟️ Issue Ticket</h2>
+            <h2>🎟️ Issue Ticket Manually</h2>
             <form id="genForm">
                 <select name="event_id" id="issueDropdown" required>
                     <option value="" disabled selected>Select an Event...</option>
@@ -103,10 +90,34 @@
             <h2>📅 Create New Event</h2>
             <form id="eventForm">
                 <input type="text" name="name" placeholder="Event Name" required>
+                <label style="font-size: 0.8em; color: gray;">Date</label>
                 <input type="date" name="date" required>
+                
+                <div style="display: flex; gap: 10px;">
+                    <div style="flex: 1;">
+                        <label style="font-size: 0.8em; color: gray;">Start Time</label>
+                        <input type="time" name="start_time" required>
+                    </div>
+                    <div style="flex: 1;">
+                        <label style="font-size: 0.8em; color: gray;">End Time</label>
+                        <input type="time" name="end_time" required>
+                    </div>
+                </div>
+
                 <input type="text" name="venue" placeholder="Venue Address" required>
+                <input type="number" name="price" placeholder="Price per ticket (₹)" required>
                 <button type="submit" id="eventBtn" style="background: #28a745;">Save Event</button>
             </form>
+        </div>
+
+        <div class="card" style="border-top-color: #17a2b8;">
+            <h2>🏷️ Update Event Price</h2>
+            <p style="font-size: 0.85em; color: #666; margin-top: 0;">Change the live price of tickets on your checkout page instantly.</p>
+            <select id="priceUpdateDropdown">
+                <option value="" disabled selected>Select an Event...</option>
+            </select>
+            <input type="number" id="quickPriceInput" placeholder="New Price (₹)" style="margin-bottom: 15px;">
+            <button onclick="updatePrice()" style="background: #17a2b8;">Save New Price</button>
         </div>
 
         <a href="index.html" class="nav-btn">Back to Door Scanner</a>
@@ -117,7 +128,6 @@
 
         function checkPin() {
             sessionToken = document.getElementById('pin-input').value;
-            // Verify against an Admin-only endpoint!
             fetch('/api/dashboard/global', { headers: { 'X-Token': sessionToken } })
             .then(res => {
                 if (res.status === 401 || res.status === 403) { alert("Incorrect Admin PIN! Unauthorized."); } 
@@ -135,12 +145,17 @@
             fetch('/api/events', { headers: getAuthHeaders() }).then(r => r.json()).then(events => {
                 const filterDrop = document.getElementById('filterDropdown');
                 const issueDrop = document.getElementById('issueDropdown');
+                const priceDrop = document.getElementById('priceUpdateDropdown');
+                
                 filterDrop.innerHTML = '<option value="ALL">Global Overview (All Events)</option>';
                 issueDrop.innerHTML = '<option value="" disabled selected>Select an Event...</option>';
+                priceDrop.innerHTML = '<option value="" disabled selected>Select an Event...</option>';
+                
                 events.forEach(e => {
                     const opt = `<option value="${e.id}">${e.name} (${e.date})</option>`;
                     filterDrop.innerHTML += opt;
                     issueDrop.innerHTML += opt;
+                    priceDrop.innerHTML += `<option value="${e.id}">${e.name} - Currently ₹${e.price}</option>`;
                 });
             });
             loadEventStats(); 
@@ -165,16 +180,6 @@
                 if(percent > 0) document.getElementById('stat-bar').innerText = percent + "%";
                 else document.getElementById('stat-bar').innerText = "";
 
-                // Show/Hide CSV Button
-                const exportBtn = document.getElementById('exportBtn');
-                if(!isGlobal) { 
-                    exportBtn.style.display = 'block'; 
-                    exportBtn.onclick = () => downloadCSV(eventId); 
-                } else { 
-                    exportBtn.style.display = 'none'; 
-                }
-
-                // Recent Scans List
                 const recentSec = document.getElementById('recent-scans-section');
                 if(!isGlobal && data.recent && data.recent.length > 0) {
                     recentSec.style.display = 'block';
@@ -185,51 +190,6 @@
                     });
                 } else { recentSec.style.display = 'none'; }
             });
-        }
-
-        function downloadCSV(eventId) {
-            fetch(`/api/export/${eventId}`, { headers: getAuthHeaders() })
-            .then(res => res.blob())
-            .then(blob => {
-                const url = window.URL.createObjectURL(blob);
-                const a = document.createElement('a');
-                a.style.display = 'none'; a.href = url; a.download = `GuestList.csv`;
-                document.body.appendChild(a); a.click(); window.URL.revokeObjectURL(url);
-            });
-        }
-
-	function updatePrice() {
-            const eventId = document.getElementById('filterDropdown').value;
-            const newPrice = document.getElementById('quickPriceInput').value;
-
-            if (eventId === "ALL") {
-                alert("Please select a specific event from the dropdown to change its price.");
-                return;
-            }
-            if (!newPrice || newPrice <= 0) {
-                alert("Please enter a valid price.");
-                return;
-            }
-
-            const formData = new FormData();
-            formData.append("event_id", eventId);
-            formData.append("new_price", newPrice);
-
-            fetch('/api/events/update_price', { 
-                method: 'POST', 
-                body: formData, 
-                headers: getAuthHeaders() 
-            })
-            .then(res => res.json())
-            .then(data => {
-                if(data.status === "success") {
-                    alert(data.message);
-                    document.getElementById('quickPriceInput').value = ""; // clear the box
-                    loadInitialData(); // Refresh the dropdowns
-                } else {
-                    alert("Error: " + data.message);
-                }
-            }).catch(e => alert("Network error connecting to server."));
         }
 
         document.getElementById('eventForm').onsubmit = function(e) {
@@ -245,6 +205,28 @@
             });
         };
 
+        function updatePrice() {
+            const eventId = document.getElementById('priceUpdateDropdown').value;
+            const newPrice = document.getElementById('quickPriceInput').value;
+
+            if (!eventId) { alert("Please select an event."); return; }
+            if (!newPrice || newPrice <= 0) { alert("Please enter a valid price."); return; }
+
+            const formData = new FormData();
+            formData.append("event_id", eventId);
+            formData.append("new_price", newPrice);
+
+            fetch('/api/events/update_price', { method: 'POST', body: formData, headers: getAuthHeaders() })
+            .then(res => res.json())
+            .then(data => {
+                if(data.status === "success") {
+                    alert(data.message);
+                    document.getElementById('quickPriceInput').value = "";
+                    loadInitialData(); 
+                } else { alert("Error: " + data.message); }
+            }).catch(e => alert("Network error."));
+        }
+
         document.getElementById('genForm').onsubmit = function(e) {
             e.preventDefault();
             const btn = document.getElementById('submitBtn');
@@ -255,11 +237,7 @@
                 if(!res.ok) throw new Error("Server Error");
                 const header = res.headers.get('Content-Disposition');
                 let filename = "Ticket.pdf";
-                
-                if (header && header.includes('filename=')) {
-                    filename = header.split('filename=')[1].replace(/"/g, '');
-                }
-                
+                if (header && header.includes('filename=')) { filename = header.split('filename=')[1].replace(/"/g, ''); }
                 return res.blob().then(blob => ({blob, filename}));
             })
             .then(({blob, filename}) => {
@@ -270,8 +248,7 @@
                 btn.innerText = "Generate Ticket"; btn.disabled = false;
                 this.reset(); loadEventStats(); 
             }).catch((err) => {
-                console.error(err);
-                alert("An error occurred. Check your internet connection.");
+                alert("An error occurred.");
                 btn.innerText = "Generate Ticket"; btn.disabled = false;
             });
         };
