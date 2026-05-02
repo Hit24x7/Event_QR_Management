@@ -7,3 +7,4 @@ pillow
 python-multipart
 twilio
 pydantic
+PyPDF2

@@ -9,6 +9,7 @@ from fastapi.responses import StreamingResponse
 from fastapi.staticfiles import StaticFiles
 from pymongo import MongoClient
 from PIL import Image
+from PyPDF2 import PdfReader, PdfWriter
 
 # ReportLab Imports
 from reportlab.lib import colors
@@ -54,8 +55,8 @@ def verify_scanner(x_token: str = Header(None)):
 # 2. BRANDING ASSETS & FONT REGISTRATION
 # ==========================================
 BACKGROUND_PATH = "ticket_bg.jpeg"  
-SPONSOR_CENTER_PATH = "sponsor_left.jpg" 
-SPONSOR_RIGHT_PATH = "sponsor_right.jpg"
+SPONSOR_CENTER_PATH = "sponsor_left.jpeg" 
+SPONSOR_RIGHT_PATH = "sponsor_right.jpeg"
 FONT_PATH = "event_font.ttf"  
 CUSTOM_FONT_NAME = "CustomEventFont"
 
@@ -263,12 +264,41 @@ def generate_ticket(event_id: str = Form(...), name: str = Form(...), email: str
     start_time = event.get("start_time", "N/A")
     end_time = event.get("end_time", "N/A")
     
-    pdf_buffer = create_ticket_pdf_buffer(event["name"], name, event["date"], start_time, end_time, event["venue"], tickets, ticket_id)
-    filename = f"Ticket_{name.replace(' ', '_')}.pdf"
+    # 1. Create the custom Ticket page (in memory)
+    ticket_buffer = create_ticket_pdf_buffer(event["name"], name, event["date"], start_time, end_time, event["venue"], tickets, ticket_id)
+    ticket_buffer.seek(0)
     
-    pdf_buffer.seek(0)
+    # --- NEW: PDF MERGING LOGIC ---
+    COUPON_FILE = "sponsor_coupons.pdf"
+    
+    # Check if you actually uploaded a coupon file
+    if os.path.exists(COUPON_FILE):
+        merger = PdfWriter()
+        
+        # Add the customized Ticket as Page 1
+        ticket_reader = PdfReader(ticket_buffer)
+        merger.add_page(ticket_reader.pages[0])
+        
+        # Add the Sponsor Coupons as Page 2 (and onwards)
+        coupon_reader = PdfReader(COUPON_FILE)
+        for page in coupon_reader.pages:
+            merger.add_page(page)
+            
+        # Save the glued version to a new final buffer
+        final_buffer = io.BytesIO()
+        merger.write(final_buffer)
+        final_buffer.seek(0)
+    else:
+        # Fallback: If no coupon file is found, just use the normal ticket
+        final_buffer = ticket_buffer
+
+    # ------------------------------
+
+    filename = f"Ticket_{name.replace(' ', '_')}.pdf"
     headers = {'Content-Disposition': f'attachment; filename="{filename}"'}
-    return StreamingResponse(pdf_buffer, media_type="application/pdf", headers=headers)
+    
+    # Send the final glued PDF back to the Admin dashboard!
+    return StreamingResponse(final_buffer, media_type="application/pdf", headers=headers)
 
 @app.get("/api/scan/{ticket_id}", dependencies=[Depends(verify_scanner)])
 def scan_ticket(ticket_id: str):
