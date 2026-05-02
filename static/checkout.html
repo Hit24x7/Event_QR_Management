@@ -71,6 +71,9 @@
         const urlParams = new URLSearchParams(window.location.search);
         const agent = urlParams.get('agent'); // Check for the secret tag
 
+        // 🚨 ADD THIS TEMPORARY DEBUG ALERT 🚨
+        alert("The webpage thinks the agent is: " + agent);
+
         // ⚠️ DEFAULT FALLBACK: If they copy the link without a tag, it defaults to Number 1!
         let BUSINESS_WA_NUMBER = "919653193636"; // PUT YOUR NUMBER 1 HERE
         let QR_SRC = "static_qr_1.jpeg";         // DEFAULT QR CODE
