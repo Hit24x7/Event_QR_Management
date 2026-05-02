@@ -45,7 +45,7 @@
                 </div>
                 <div class="form-group">
                     <label>Number of Tickets</label>
-                    <input type="number" name="tickets" id="ticketCount" value="1" min="1" max="10" required onchange="calculateTotal()" onkeyup="calculateTotal()">
+                    <input type="number" name="tickets" id="ticketCount" value="1" min="1" max="100" required onchange="calculateTotal()" onkeyup="calculateTotal()">
                 </div>
                 <div class="price-summary">
                     Total Amount Due: <br>
@@ -67,25 +67,22 @@
     </div>
 
     <script>
-        // --- MULTI-NUMBER SMART ROUTING (WITH FAIL-SAFE DEFAULT) ---
+        // --- MULTI-NUMBER SMART ROUTING ---
         const urlParams = new URLSearchParams(window.location.search);
-        const agent = urlParams.get('agent'); // Check for the secret tag
+        const agent = urlParams.get('agent') || "1"; // Defaults to agent 1 if no param is found
 
-        // 🚨 ADD THIS TEMPORARY DEBUG ALERT 🚨
-        alert("The webpage thinks the agent is: " + agent);
+        // ⚠️ CHANGE THESE TO YOUR ACTUAL TWO BUSINESS NUMBERS ⚠️
+        let BUSINESS_WA_NUMBER = "919653193636"; 
+        let QR_SRC = "static_qr_1.jpeg";
 
-        // ⚠️ DEFAULT FALLBACK: If they copy the link without a tag, it defaults to Number 1!
-        let BUSINESS_WA_NUMBER = "919653193636"; // PUT YOUR NUMBER 1 HERE
-        let QR_SRC = "static_qr_1.jpeg";         // DEFAULT QR CODE
-
-        // Only change to Number 2 if the link explicitly says ?agent=2
         if (agent === "2") {
-            BUSINESS_WA_NUMBER = "918169630273"; // PUT YOUR NUMBER 2 HERE
+            BUSINESS_WA_NUMBER = "918169630273";
             QR_SRC = "static_qr_2.jpeg";
         }
         
-        // Force the webpage to load the correct QR code immediately
+        // Load the correct QR code for the specific agent!
         document.getElementById('qr-image').src = QR_SRC;
+
 
         let eventsData = [];
 
