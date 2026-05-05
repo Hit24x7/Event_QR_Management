@@ -324,6 +324,57 @@ def get_global_stats():
     arrived = list(tickets_collection.aggregate(pipeline_scanned))[0]["total"] if list(tickets_collection.aggregate(pipeline_scanned)) else 0
     return {"events": total_events, "expected": expected, "arrived": arrived}
 
+# ========================================================
+# EXPORT DATA ENDPOINTS
+# ========================================================
+@app.get("/api/export/{event_id}", dependencies=[Depends(verify_admin)])
+def export_csv(event_id: str):
+    # Export issued tickets (Guest List)
+    query = {} if event_id == "ALL" else {"event_id": event_id}
+    tickets = list(tickets_collection.find(query).sort("created_at", -1))
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Ticket ID", "Event ID", "Attendee Name", "Email", "Phone", "Tickets Count", "Has Arrived?", "Scan Time"])
+    
+    for t in tickets:
+        writer.writerow([
+            t.get("_id", ""), t.get("event_id", ""), t.get("attendee_name", ""),
+            t.get("attendee_email", ""), t.get("attendee_phone", ""), t.get("tickets_count", ""),
+            "Yes" if t.get("is_scanned") else "No", t.get("scanned_at", "N/A")
+        ])
+        
+    output.seek(0)
+    filename = f"GuestList_{event_id}.csv"
+    headers = {'Content-Disposition': f'attachment; filename="{filename}"'}
+    return StreamingResponse(output, media_type="text/csv", headers=headers)
+
+@app.get("/api/export_leads/{event_id}", dependencies=[Depends(verify_admin)])
+def export_leads_csv(event_id: str):
+    # Export pending checkout leads (Abandoned Carts)
+    query = {} if event_id == "ALL" else {"event_id": event_id}
+    leads = list(pending_leads.find(query).sort("created_at", -1))
+    
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Order ID", "Event Name", "Customer Name", "Email", "Phone", "Tickets Requested", "Total Amount Due (₹)", "Status", "Date Created"])
+    
+    for lead in leads:
+        date_created = lead.get("created_at", "")
+        if isinstance(date_created, datetime):
+            date_created = date_created.strftime("%d-%b-%Y %I:%M %p")
+
+        writer.writerow([
+            lead.get("_id", ""), lead.get("event_name", ""), lead.get("name", ""),
+            lead.get("email", ""), lead.get("phone", ""), lead.get("tickets_requested", ""),
+            lead.get("total_amount", ""), lead.get("status", ""), date_created
+        ])
+        
+    output.seek(0)
+    filename = f"PendingLeads_{event_id}.csv"
+    headers = {'Content-Disposition': f'attachment; filename="{filename}"'}
+    return StreamingResponse(output, media_type="text/csv", headers=headers)
+
 @app.get("/api/dashboard/event/{event_id}", dependencies=[Depends(verify_admin)])
 def get_event_stats(event_id: str):
     pipeline_total = [{"$match": {"event_id": event_id}}, {"$addFields": {"tickets_int": {"$toInt": "$tickets_count"}}}, {"$group": {"_id": None, "total": {"$sum": "$tickets_int"}}}]
@@ -357,3 +408,10 @@ async def whatsapp_bot(request: Request):
     return Response(content=str(response), media_type="application/xml")
 
 app.mount("/", StaticFiles(directory="static", html=True), name="static")
+
+
+
+
+
+
+
