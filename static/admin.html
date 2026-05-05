@@ -68,9 +68,11 @@
             <div id="recent-scans-section" style="display: none; margin-top: 20px;">
                 <h3 style="font-size: 1em; color: #1F4F82; margin-bottom: 10px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">Latest Arrivals</h3>
                 <ul class="recent-list" id="recent-list"></ul>
+            <div style="display: flex; gap: 10px; margin-top: 15px;">
+                <button class="secondary" onclick="loadEventStats()" style="flex: 1; margin-bottom: 0; padding: 10px 5px;">🔄 Refresh</button>
+                <button class="secondary" onclick="exportCSV()" style="flex: 1; margin-bottom: 0; background: #28a745; color: white; padding: 10px 5px;">📥 Tickets</button>
+                <button class="secondary" onclick="exportLeadsCSV()" style="flex: 1; margin-bottom: 0; background: #FFD700; color: #1F4F82; font-weight: bold; padding: 10px 5px;">📥 Leads</button>
             </div>
-            <button class="secondary" onclick="loadEventStats()" style="margin-top: 15px;">🔄 Refresh Dashboard</button>
-        </div>
 
         <div class="card">
             <h2>🎟️ Issue Ticket Manually</h2>
@@ -252,6 +254,50 @@
                 btn.innerText = "Generate Ticket"; btn.disabled = false;
             });
         };
+
+        function exportCSV() {
+            const eventId = document.getElementById('filterDropdown').value;
+            const url = `/api/export/${eventId}`;
+            
+            fetch(url, { headers: getAuthHeaders() })
+            .then(res => {
+                if (!res.ok) throw new Error("Unauthorized or server error.");
+                return res.blob();
+            })
+            .then(blob => {
+                const downloadUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = downloadUrl;
+                a.download = `GuestList_${eventId}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(downloadUrl);
+            })
+            .catch(e => alert("Error downloading the Tickets CSV file."));
+        }
+
+        function exportLeadsCSV() {
+            const eventId = document.getElementById('filterDropdown').value;
+            const url = `/api/export_leads/${eventId}`;
+            
+            fetch(url, { headers: getAuthHeaders() })
+            .then(res => {
+                if (!res.ok) throw new Error("Unauthorized or server error.");
+                return res.blob();
+            })
+            .then(blob => {
+                const downloadUrl = window.URL.createObjectURL(blob);
+                const a = document.createElement('a');
+                a.style.display = 'none';
+                a.href = downloadUrl;
+                a.download = `PendingLeads_${eventId}.csv`;
+                document.body.appendChild(a);
+                a.click();
+                window.URL.revokeObjectURL(downloadUrl);
+            })
+            .catch(e => alert("Error downloading the Leads CSV file."));
+        }
     </script>
 </body>
 </html>
