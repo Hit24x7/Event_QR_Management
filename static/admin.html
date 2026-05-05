@@ -68,11 +68,14 @@
             <div id="recent-scans-section" style="display: none; margin-top: 20px;">
                 <h3 style="font-size: 1em; color: #1F4F82; margin-bottom: 10px; border-bottom: 1px solid #ccc; padding-bottom: 5px;">Latest Arrivals</h3>
                 <ul class="recent-list" id="recent-list"></ul>
+            </div>
+            
             <div style="display: flex; gap: 10px; margin-top: 15px;">
                 <button class="secondary" onclick="loadEventStats()" style="flex: 1; margin-bottom: 0; padding: 10px 5px;">🔄 Refresh</button>
                 <button class="secondary" onclick="exportCSV()" style="flex: 1; margin-bottom: 0; background: #28a745; color: white; padding: 10px 5px;">📥 Tickets</button>
                 <button class="secondary" onclick="exportLeadsCSV()" style="flex: 1; margin-bottom: 0; background: #FFD700; color: #1F4F82; font-weight: bold; padding: 10px 5px;">📥 Leads</button>
             </div>
+        </div>
 
         <div class="card">
             <h2>🎟️ Issue Ticket Manually</h2>
@@ -255,6 +258,7 @@
             });
         };
 
+        // EXPORT FUNCTIONS
         function exportCSV() {
             const eventId = document.getElementById('filterDropdown').value;
             const url = `/api/export/${eventId}`;
